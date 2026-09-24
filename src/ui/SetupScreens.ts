@@ -86,8 +86,9 @@ export const PositionScreen: Screen = (app) => {
     cont.disabled = !(rate >= 0.8 && recent.length >= 5);
     if (s.valid) lastGood = s.timestampMs;
     const stuck = !s.valid && s.timestampMs - lastGood > 3000;
-    why.classList.toggle("hidden", !stuck);
-    if (stuck) why.textContent = `Not tracking: ${INVALID_REASON_TEXT[s.invalidReason ?? "no-face"]}. If the face is clearly in view, restart the camera and tracking.`;
+    why.classList.toggle("hidden", !stuck && !app.engine.gaveUp);
+    if (app.engine.gaveUp) why.textContent = app.engine.gaveUp;
+    else if (stuck) why.textContent = `Not tracking: ${INVALID_REASON_TEXT[s.invalidReason ?? "no-face"]}. If the face is clearly in view, restart the camera and tracking.`;
   });
 
   app.root.append(h("main", { class: "page wide" },

@@ -182,7 +182,14 @@ iPhones in particular switch off the camera and discard the tracker's graphics m
 - The position and try-out screens say *why* tracking failed, and offer **Restart camera and tracking**.
 - While restarting, the screen stays black and nothing counts as a response. In test mode the client must look forward before responses count again.
 
-If problems persist, try *Settings › Processor › CPU*. Developer mode shows the recovery count and last reason.
+If problems persist, try *Settings › Processor › CPU*.
+
+Since 0.2.1, recovery escalates gently and can't loop:
+- **Paused video.** If the browser pauses the video (iOS does this to videos it thinks are hidden), it is simply resumed, with no new camera request.
+- **Brief system mute.** A system "mute" is given 2 s to clear by itself.
+- **Camera actually stopped.** Only then is the camera restarted, at most 3 times a minute. After that, automatic restarts stop and the app says so, with a manual restart button.
+
+Every recovery is logged with its reason. Developer mode lists them under "Camera / tracking recovery log", and a paired remote shows a warning when restarts repeat.
 
 ## Current limitations
 

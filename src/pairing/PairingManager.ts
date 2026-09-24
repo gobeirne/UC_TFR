@@ -160,6 +160,9 @@ export class PairingManager {
     if (p?.movement.moved) warnings.push(`Device may have moved — consider recalibrating (${p.movement.reason}).`);
     if (s?.deviceMovedNote) warnings.push(`Device may have moved — ${s.deviceMovedNote}.`);
     if (document.visibilityState === "hidden") warnings.push("The patient device app is in the background.");
+    const es = app.engine.stats();
+    if (es.gaveUp) warnings.push(es.gaveUp);
+    else if (es.cameraRestartsLastMinute >= 2) warnings.push(`The patient device's camera restarted ${es.cameraRestartsLastMinute}× in the last minute (${es.lastRecovery}).`);
     const reason = tick && !tick.c.valid ? (tick.sample.invalidReason ? INVALID_REASON_TEXT[tick.sample.invalidReason] : "too few usable features")
       : last && !last.valid && last.invalidReason ? INVALID_REASON_TEXT[last.invalidReason] : undefined;
     const msg: StatusMsg = {

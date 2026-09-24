@@ -42,7 +42,7 @@ export const ValidationScreen: Screen = (app) => {
   const pair = pairBadge(app);
   const unsub = app.engine.subscribe((s) => {
     const t = pipeline.process(s);
-    const w = [pipeline.modeFallback, (t.mode === "adaptive" || t.mode === "cautious") ? pipeline.drift.warning : ""].filter(Boolean).join(" ");
+    const w = [app.engine.gaveUp, pipeline.modeFallback, (t.mode === "adaptive" || t.mode === "cautious") ? pipeline.drift.warning : ""].filter(Boolean).join(" ");
     warn.textContent = w; warn.classList.toggle("hidden", !w);
     bar.set(t.c.score, t.c.valid);
     scoreTxt.textContent = t.c.valid ? fmt(t.c.score) : "—";

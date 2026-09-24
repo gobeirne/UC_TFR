@@ -14,7 +14,8 @@ export class CameraManager {
 
   constructor() {
     const v = document.createElement("video");
-    v.muted = true; v.playsInline = true; v.autoplay = true;
+    // No autoplay: iOS pauses "autoplay" media it considers invisible. We call play() ourselves.
+    v.muted = true; v.playsInline = true;
     v.setAttribute("playsinline", ""); v.setAttribute("muted", "");
     v.className = "camera-video";
     this.video = v;
@@ -46,7 +47,11 @@ export class CameraManager {
     const track = this.stream.getVideoTracks()[0];
     const stream = this.stream;
     track?.addEventListener("ended", () => { if (this.stream === stream) this.onTrackProblem?.("camera stopped"); });
-    track?.addEventListener("mute", () => { if (this.stream === stream) this.onTrackProblem?.("camera paused by the system"); });
+    // iOS mutes the camera briefly during some system interruptions and unmutes it
+    // again by itself. Only treat it as a problem if it stays muted.
+    track?.addEventListener("mute", () => {
+      setTimeout(() => { if (this.stream === stream && track.muted && track.readyState === "live") this.onTrackProblem?.("camera paused by the system"); }, 2000);
+    });
     this.video.srcObject = this.stream;
     await this.video.play().catch(() => { /* resumed on first mount */ });
     await new Promise<void>((res) => {
@@ -56,6 +61,18 @@ export class CameraManager {
     });
     const s = this.stream.getVideoTracks()[0]?.getSettings() ?? {};
     this.info = `${s.width ?? "?"}×${s.height ?? "?"} @ ${s.frameRate ? Math.round(s.frameRate) : "?"} fps${s.facingMode ? ` (${s.facingMode})` : ""}`;
+  }
+
+  /** Resume the video element if the browser paused it. Cheap; no new camera request. */
+  nudge(): boolean {
+    if (!this.video.paused || !this.running) return false;
+    this.video.play().catch(() => {});
+    return true;
+  }
+
+  get trackLive(): boolean {
+    const t = this.stream?.getVideoTracks()[0];
+    return !!t && t.readyState === "live" && !t.muted;
   }
 
   get activeDeviceId(): string { return this.stream?.getVideoTracks()[0]?.getSettings().deviceId ?? ""; }

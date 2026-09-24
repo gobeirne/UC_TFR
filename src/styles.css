@@ -80,9 +80,13 @@ main > .actions > button.primary { flex: 1 1 14rem; }
 .preview-video, .preview-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; transform: scaleX(-1); }
 .face-guide { position: absolute; left: 50%; top: 50%; width: 34%; height: 62%; transform: translate(-50%, -50%); border: 2px dashed rgba(255,255,255,0.35); border-radius: 50%; pointer-events: none; }
 
-/* Video must stay rendered for frame callbacks, but invisible. */
-.hidden-video { position: fixed; left: 0; top: 0; width: 4px; height: 4px; overflow: hidden; opacity: 0.01; pointer-events: none; z-index: -1; }
-.hidden-video-el { width: 4px; height: 4px; }
+/* Parked video: must stay "visible" to the browser (iOS pauses videos it thinks
+   are hidden), so it keeps a real size and full opacity, covered by an opaque
+   black layer. On these black screens the patch is invisible. */
+.hidden-video { position: fixed; left: 0; bottom: 0; width: 64px; height: 48px; overflow: hidden; pointer-events: none; z-index: 0; }
+.hidden-video::after { content: ""; position: absolute; inset: 0; background: #000; }
+.hidden-video-el { width: 64px; height: 48px; object-fit: cover; display: block; }
+body.testing .hidden-video { z-index: 999; } /* just under the test screen (1000) */
 
 .progress { height: 8px; background: var(--raised); border-radius: 4px; overflow: hidden; margin-bottom: 1rem; }
 .progress-fill { height: 100%; width: 0; background: var(--ink); }

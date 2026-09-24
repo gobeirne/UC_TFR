@@ -15,7 +15,13 @@ export interface EngineStats {
   errors: number;
   recoveries: number;
   lastRecovery: string;
+  cameraRestartsLastMinute: number;
+  videoResumes: number;
+  gaveUp: string;
+  log: RecoveryLogEntry[];
 }
+
+export interface RecoveryLogEntry { at: number; reason: string; action: "resumed video" | "restarted camera" | "rebuilt tracker" | "gave up" }
 
 const STALL_MS = 700;
 /** Camera delivering no frames for this long while visible → restart it. */
@@ -23,6 +29,8 @@ const FROZEN_MS = 2500;
 /** No face for this long, after a face has been seen, → rebuild the tracker once. */
 const ZOMBIE_MS = 6000;
 const ZOMBIE_RETRY_MS = 30000;
+/** Loop breaker: more automatic camera restarts than this per minute and we stop and ask. */
+const MAX_CAMERA_RESTARTS_PER_MIN = 3;
 
 /**
  * Drives inference from camera frames at a throttled rate and publishes
@@ -37,6 +45,14 @@ export class TrackingEngine {
   private lastSampleAt = 0;
   /** Last time a real camera frame was analysed (placeholder samples don't count). */
   private lastRealSampleAt = 0;
+  /** Last time a NEW camera frame arrived (independent of whether it was analysed). */
+  private lastCameraFrameAt = 0;
+  private lastNudgeAt = -Infinity;
+  private videoResumes = 0;
+  private cameraRestarts: number[] = [];
+  /** Non-empty when automatic camera restarts have been stopped to break a loop. */
+  gaveUp = "";
+  readonly recoveryLog: RecoveryLogEntry[] = [];
   private rvfcHandle = 0; private rafHandle = 0; private watchdog = 0;
   private lastFrameCb = 0;
   private forceRaf = false;
@@ -96,13 +112,32 @@ export class TrackingEngine {
    * Restart the camera (if needed) and rebuild the tracker. While this runs the
    * watchdog keeps emitting invalid samples, so nothing can register as a response.
    */
-  async recover(reason: string, restartCamera = false): Promise<void> {
+  private logRecovery(reason: string, action: RecoveryLogEntry["action"]) {
+    this.recoveryLog.push({ at: Date.now(), reason, action });
+    if (this.recoveryLog.length > 30) this.recoveryLog.shift();
+    console.warn(`Tracking: ${action} — ${reason}`);
+  }
+
+  async recover(reason: string, restartCamera = false, manual = false): Promise<void> {
     if (this.recovering || !this.running) return;
+    const now = performance.now();
+    if (restartCamera || !this.camera.running) {
+      this.cameraRestarts = this.cameraRestarts.filter((t) => now - t < 60000);
+      if (!manual && this.cameraRestarts.length >= MAX_CAMERA_RESTARTS_PER_MIN) {
+        if (!this.gaveUp) {
+          this.gaveUp = `The camera keeps stopping (last reason: ${reason}). Automatic restarts are paused — use Restart camera and tracking.`;
+          this.logRecovery(reason, "gave up");
+        }
+        return;
+      }
+      this.cameraRestarts.push(now);
+    }
+    if (manual) this.gaveUp = "";
+    this.logRecovery(reason, restartCamera || !this.camera.running ? "restarted camera" : "rebuilt tracker");
     this.recovering = true;
     this.recoveries++;
     this.lastRecovery = reason;
     this.lastRecoveryAt = performance.now();
-    console.warn(`Tracking recovery: ${reason}`);
     this.stopLoop();
     this.emit(invalidSample(performance.now(), "recovering"));
     try {
@@ -139,7 +174,7 @@ export class TrackingEngine {
   }
 
   /** Manual "Restart camera and tracking". */
-  restart(): Promise<void> { return this.recover("restarted by clinician", true); }
+  restart(): Promise<void> { return this.recover("restarted by clinician", true, true); }
 
   subscribe(fn: (s: TrackingSample) => void): () => void { this.subs.add(fn); return () => this.subs.delete(fn); }
 
@@ -172,6 +207,7 @@ export class TrackingEngine {
     this.loopActive = true;
     this.lastFrameCb = performance.now();
     this.lastRealSampleAt = performance.now();
+    this.lastCameraFrameAt = performance.now();
     this.lastMediaTime = -1;
     this.forceRaf = false;
     this.schedule();
@@ -210,6 +246,7 @@ export class TrackingEngine {
       this.lastMediaTime = mediaTime;
     }
     this.frameStamps.push(now); this.trim(this.frameStamps, now);
+    this.lastCameraFrameAt = performance.now();
     if (v.readyState < 2 || !v.videoWidth || !this.ready || this.busy) return;
     const interval = 1000 / Math.max(1, this.settings.inferenceHz);
     if (now - this.lastInfer < interval * 0.9) { this.skipped++; return; }
@@ -257,10 +294,20 @@ export class TrackingEngine {
   private checkStall(): void {
     const now = performance.now();
     if (this.running && now - this.lastSampleAt > STALL_MS) this.emit(invalidSample(now, this.recovering ? "recovering" : "stalled"));
-    // Camera frozen while the app is visible (no new frames at all): restart it.
-    if (this.running && !this.recovering && !this.pausedForHidden && document.visibilityState === "visible"
-        && now - this.lastRealSampleAt > FROZEN_MS && now - this.lastRecoveryAt > 5000) {
-      void this.recover("camera stopped delivering images", true);
+    const active = this.running && !this.recovering && !this.pausedForHidden && document.visibilityState === "visible";
+    if (active && now - this.lastCameraFrameAt > FROZEN_MS) {
+      // 1. The video element was paused (iOS power saving): just resume it.
+      if (this.camera.video.paused && this.camera.trackLive && now - this.lastNudgeAt > 1500) {
+        this.lastNudgeAt = now; this.videoResumes++;
+        this.camera.nudge();
+        this.logRecovery("video playback was paused by the browser", "resumed video");
+      // 2. The camera itself stopped: restart it (budgeted).
+      } else if (now - this.lastRecoveryAt > 5000 && now - this.lastNudgeAt > 1500) {
+        void this.recover(this.camera.trackLive ? "camera stopped delivering images" : "camera track ended", true);
+      }
+    } else if (active && now - this.lastRealSampleAt > FROZEN_MS && now - this.lastRecoveryAt > 5000) {
+      // 3. Frames arrive but nothing is analysed: the tracker is stuck. No need to touch the camera.
+      void this.recover("images arriving but the tracker is silent");
     }
     if (this.mode === "rVFC" && now - this.lastFrameCb > 1000 && this.camera.running && this.camera.video.readyState >= 2) {
       // rVFC has stopped firing (some browsers pause it for hidden/occluded video): switch to rAF for this run.
@@ -286,6 +333,10 @@ export class TrackingEngine {
       errors: this.errorCount,
       recoveries: this.recoveries,
       lastRecovery: this.lastRecovery,
+      cameraRestartsLastMinute: this.cameraRestarts.filter((t) => performance.now() - t < 60000).length,
+      videoResumes: this.videoResumes,
+      gaveUp: this.gaveUp,
+      log: [...this.recoveryLog],
     };
   }
 }

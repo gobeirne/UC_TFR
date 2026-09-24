@@ -30,6 +30,7 @@ export const DeveloperScreen: Screen = (app) => {
     fps: h("span"), ms: h("span"), cam: h("span"), loop: h("span"), skipped: h("span"), latency: h("span"), moved: h("span"),
   };
   const liveBox = h("div");
+  const recLog = h("pre", { class: "synth" });
   let lastLatency = 0, lastTableUpdate = 0;
 
   const unsub = app.engine.subscribe((smp) => {
@@ -60,7 +61,8 @@ export const DeveloperScreen: Screen = (app) => {
       out.fps.textContent = `${st.inferenceFps} / target ${s.inferenceHz}`;
       out.ms.textContent = `${fmt(st.inferenceMsAvg, 1)} avg, ${fmt(st.inferenceMsMax, 1)} max (${st.delegate})`;
       out.cam.textContent = `${st.cameraFps} fps — ${app.camera.info}`;
-      out.loop.textContent = `${st.loop}, errors ${st.errors}, recoveries ${st.recoveries}${st.lastRecovery ? ` (last: ${st.lastRecovery})` : ""}`;
+      out.loop.textContent = `${st.loop}, errors ${st.errors}, camera restarts ${st.cameraRestartsLastMinute}/min, video resumes ${st.videoResumes}`;
+      recLog.textContent = st.log.length ? st.log.slice(-8).reverse().map((e) => `${new Date(e.at).toLocaleTimeString()}  ${e.action}: ${e.reason}`).join("\n") : "No recoveries.";
       out.skipped.textContent = String(st.skippedFrames);
       out.latency.textContent = `${fmt(lastLatency, 1)} ms frame→transition (excl. dwell)`;
       liveBox.replaceChildren(model ? featureTable(model, smp.features)
@@ -140,6 +142,7 @@ export const DeveloperScreen: Screen = (app) => {
         s.devBeep ? h("p", { class: "fineprint" }, "Demo beep: developer demonstration only — not a calibrated audiometric stimulus.") : null,
       )),
     h("h2", {}, model ? "Features (calibration and live)" : "Live features"), liveBox,
+    h("details", { open: true }, h("summary", {}, "Camera / tracking recovery log"), recLog),
     h("details", {}, h("summary", {}, "Synthetic state-machine test"),
       h("button", { onclick: runSynthetic }, "Run synthetic sequence with current settings"), synthOut),
   ));
