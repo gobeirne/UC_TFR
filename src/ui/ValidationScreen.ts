@@ -5,6 +5,7 @@ import { VisualResponseOutput } from "../outputs/VisualOutput";
 import { WakeLockManager } from "../platform/WakeLock";
 import { enterFullscreen } from "../platform/fullscreen";
 import { isIOS } from "../platform/capabilities";
+import { INVALID_REASON_TEXT } from "../tracking/TrackingSample";
 
 /** Score bar with activation/release markers. Shared with developer mode. */
 export function scoreBar(app: App) {
@@ -41,7 +42,7 @@ export const ValidationScreen: Screen = (app) => {
     scoreTxt.textContent = t.c.valid ? fmt(t.c.score) : "—";
     count.textContent = String(pipeline.responses);
     const st = pipeline.machine.state;
-    status.textContent = !t.c.valid ? `Not tracking (${s.invalidReason ?? "insufficient features"})`
+    status.textContent = !t.c.valid ? `Not tracking: ${INVALID_REASON_TEXT[s.invalidReason ?? "low-coverage"]}`
       : st === "TRACKING_LOST" ? "Waiting for a forward look to arm"
       : !t.c.onAxis && t.c.score > app.settings.releaseThreshold ? "Movement not toward the device — ignored"
       : pipeline.machine.active ? "Response detected" : "Ready";
@@ -66,6 +67,7 @@ export const ValidationScreen: Screen = (app) => {
     h("div", { class: "actions" },
       h("button", { class: "primary", onclick: () => startTesting(app) }, "Start testing"),
       h("button", { onclick: () => app.go("calibrate-forward") }, "Recalibrate"),
+      h("button", { onclick: () => void app.engine.restart() }, "Restart tracking"),
       app.settings.developerMode ? h("button", { onclick: () => app.go("developer") }, "Developer view") : null),
     h("p", { class: "hint" }, "To leave the black test screen: press and hold the top-left corner for 1.5 seconds (or press Esc on a keyboard). Don't move the device after calibration."),
   ));

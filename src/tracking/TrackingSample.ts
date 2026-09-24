@@ -35,7 +35,17 @@ export const FEATURE_INFO: Record<FeatureKey, FeatureInfo> = {
   rGazeV:    { label: "Right gaze vertical (model)",   group: "eye",  noiseFloor: 0.01 },
 };
 
-export type InvalidReason = "no-face" | "face-at-edge" | "tracker-error" | "stalled" | "low-coverage";
+export type InvalidReason = "no-face" | "face-at-edge" | "tracker-error" | "stalled" | "low-coverage" | "recovering";
+
+/** Plain-language explanation for the clinician. */
+export const INVALID_REASON_TEXT: Record<InvalidReason, string> = {
+  "no-face": "no face found in the camera image",
+  "face-at-edge": "face is at the edge of the camera view",
+  "tracker-error": "the tracker reported an error",
+  stalled: "the camera is not delivering images",
+  "low-coverage": "too few usable features",
+  recovering: "restarting camera and tracking…",
+};
 
 export interface TrackingSample {
   /** performance.now() when the frame was handed to the tracker. */

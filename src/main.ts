@@ -58,6 +58,7 @@ const app: App = {
 
 if (import.meta.env.DEV && new URLSearchParams(location.search).has("sim")) {
   import("./dev/simulator").then(({ installSimulator }) => installSimulator(engine));
+  (window as any).__app = app;
 }
 
 app.go("home");

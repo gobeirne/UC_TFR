@@ -9,6 +9,8 @@ export class CameraManager {
   readonly video: HTMLVideoElement;
   stream?: MediaStream;
   info = "";
+  /** Called if the camera track ends or is muted by the OS (e.g. app backgrounded, another app took the camera). */
+  onTrackProblem?: (why: string) => void;
 
   constructor() {
     const v = document.createElement("video");
@@ -41,6 +43,10 @@ export class CameraManager {
       }
     }
     if (!this.stream) throw this.mapError(lastErr);
+    const track = this.stream.getVideoTracks()[0];
+    const stream = this.stream;
+    track?.addEventListener("ended", () => { if (this.stream === stream) this.onTrackProblem?.("camera stopped"); });
+    track?.addEventListener("mute", () => { if (this.stream === stream) this.onTrackProblem?.("camera paused by the system"); });
     this.video.srcObject = this.stream;
     await this.video.play().catch(() => { /* resumed on first mount */ });
     await new Promise<void>((res) => {

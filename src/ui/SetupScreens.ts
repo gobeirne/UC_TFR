@@ -2,7 +2,7 @@ import type { Screen } from "./app";
 import { h } from "./dom";
 import { CameraError } from "../camera/CameraManager";
 import { createPreview } from "./Preview";
-import type { TrackingSample } from "../tracking/TrackingSample";
+import { INVALID_REASON_TEXT, type TrackingSample } from "../tracking/TrackingSample";
 
 const CAMERA_HELP: Record<string, string> = {
   permission: "Camera access is required to detect the patient's response. No video is recorded or uploaded. Allow camera access in the browser's site settings (on iPhone: Settings › Safari › Camera, or the “aA” menu › Website Settings), then try again.",
@@ -60,6 +60,14 @@ export const PositionScreen: Screen = (app) => {
     camRow.classList.remove("hidden");
   });
 
+  const why = h("p", { class: "notice warn hidden" });
+  const restartBtn = h("button", { onclick: async () => {
+    restartBtn.disabled = true; restartBtn.textContent = "Restarting…";
+    await app.engine.restart();
+    restartBtn.disabled = false; restartBtn.textContent = "Restart camera and tracking";
+    lastGood = performance.now();
+  } }, "Restart camera and tracking");
+  let lastGood = performance.now();
   const recent: TrackingSample[] = [];
   const unsub = app.engine.subscribe((s) => {
     recent.push(s);
@@ -74,6 +82,10 @@ export const PositionScreen: Screen = (app) => {
     size.textContent = sc === undefined ? "—" : sc < 0.07 ? "Small — move closer" : sc > 0.4 ? "Very close — move back" : "OK";
     size.className = sc === undefined ? "" : sc < 0.07 || sc > 0.4 ? "warn" : "ok";
     cont.disabled = !(rate >= 0.8 && recent.length >= 5);
+    if (s.valid) lastGood = s.timestampMs;
+    const stuck = !s.valid && s.timestampMs - lastGood > 3000;
+    why.classList.toggle("hidden", !stuck);
+    if (stuck) why.textContent = `Not tracking: ${INVALID_REASON_TEXT[s.invalidReason ?? "no-face"]}. If the face is clearly in view, restart the camera and tracking.`;
   });
 
   app.root.append(h("main", { class: "page wide" },
@@ -82,8 +94,9 @@ export const PositionScreen: Screen = (app) => {
     h("p", { class: "hint" }, "Place it roughly 30–60° to one side of their forward gaze, near eye level. Either side works. Avoid a bright window behind the client."),
     preview.el,
     h("dl", { class: "readout" }, h("dt", {}, "Face detected"), h("dd", {}, face), h("dt", {}, "Tracking"), h("dd", {}, quality), h("dt", {}, "Face size"), h("dd", {}, size)),
+    why,
     camRow,
-    h("div", { class: "actions" }, cont, h("button", { onclick: () => app.endSession() }, "Cancel")),
+    h("div", { class: "actions" }, cont, restartBtn, h("button", { onclick: () => app.endSession() }, "Cancel")),
   ));
   return () => { unsub(); preview.dispose(); };
 };

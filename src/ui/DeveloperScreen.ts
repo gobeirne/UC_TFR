@@ -44,7 +44,7 @@ export const DeveloperScreen: Screen = (app) => {
       out.responses.textContent = String(pipeline.responses);
       out.moved.textContent = pipeline.movement.moved ? pipeline.movement.reason : "no";
     }
-    out.valid.textContent = smp.valid ? "valid" : `invalid (${smp.invalidReason})`;
+    out.valid.textContent = smp.valid ? "valid" : `invalid: ${smp.invalidReason}`;
     const now = performance.now();
     if (now - lastTableUpdate > 250) {
       lastTableUpdate = now;
@@ -52,7 +52,7 @@ export const DeveloperScreen: Screen = (app) => {
       out.fps.textContent = `${st.inferenceFps} / target ${s.inferenceHz}`;
       out.ms.textContent = `${fmt(st.inferenceMsAvg, 1)} avg, ${fmt(st.inferenceMsMax, 1)} max (${st.delegate})`;
       out.cam.textContent = `${st.cameraFps} fps — ${app.camera.info}`;
-      out.loop.textContent = `${st.loop}, errors ${st.errors}`;
+      out.loop.textContent = `${st.loop}, errors ${st.errors}, recoveries ${st.recoveries}${st.lastRecovery ? ` (last: ${st.lastRecovery})` : ""}`;
       out.skipped.textContent = String(st.skippedFrames);
       out.latency.textContent = `${fmt(lastLatency, 1)} ms frame→transition (excl. dwell)`;
       liveBox.replaceChildren(model ? featureTable(model, smp.features)
@@ -112,6 +112,7 @@ export const DeveloperScreen: Screen = (app) => {
         h("div", { class: "actions" },
           h("button", { onclick: () => { resetTunables(s); app.go("developer"); } }, "Reset defaults"),
           h("button", { onclick: () => app.go("calibrate-forward") }, "Recalibrate"),
+          h("button", { onclick: () => void app.engine.restart() }, "Restart tracking"),
           model ? h("button", { onclick: () => app.go("validation") }, "Try-out screen") : h("button", { onclick: () => app.go("position") }, "Back"),
           model ? h("button", { class: "primary", onclick: () => startTesting(app) }, "Start testing") : null,
           s.devBeep ? h("button", { onclick: () => devBeep() }, "Demo beep") : null,

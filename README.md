@@ -136,6 +136,18 @@ Inference runs throttled at 20 Hz by default (adjustable), with 720p capture for
 
 ---
 
+## Troubleshooting: “Face detected: No” although the face is in view
+
+iPhones in particular switch off the camera and discard the tracker's graphics memory when the app goes to the background, the screen locks, or another app uses the camera. Since 0.1.1 the app handles this itself:
+
+- Leaving the app turns the camera off. Returning restarts the camera and rebuilds the tracker. Calibration is kept.
+- It also restarts automatically if the camera stops delivering images, if the tracker's graphics context is lost, after repeated tracker errors (switching GPU → CPU if needed), or if a face disappears for 6 s while images keep arriving.
+- Every new session starts with a fresh tracker.
+- The position and try-out screens say *why* tracking failed, and offer **Restart camera and tracking**.
+- While restarting, the screen stays black and nothing counts as a response. In test mode the client must look forward before responses count again.
+
+If problems persist, try *Settings › Processor › CPU*. Developer mode shows the recovery count and last reason.
+
 ## Current limitations
 
 - **Not yet validated on real clients.** Thresholds, dwell times, quality grades and the gate are reasoned starting points, checked with synthetic data and unit tests, not clinical data. The immediate next step is the informal robustness test: left vs right placement, glasses, eye-only vs head movement, lighting, several phones.

@@ -14,6 +14,9 @@ export class MediaPipeFaceTracker {
   modelSource = "";
   private fileset?: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
   private model?: Uint8Array;
+  /** Set when the browser discards the tracker's WebGL context (common on iOS after backgrounding). */
+  contextLost = false;
+  onContextLost?: () => void;
 
   get ready() { return !!this.lm; }
 
@@ -29,12 +32,25 @@ export class MediaPipeFaceTracker {
     throw lastErr ?? new Error("Face tracker could not start");
   }
 
-  /** Called by the engine if the GPU path fails at runtime (seen on some mobile browsers). */
-  async fallbackToCpu(): Promise<void> { this.close(); await this.create("CPU"); }
+  /** Throw away the tracker and build a fresh one (new WebGL context). Model stays in memory, so this is quick. */
+  async rebuild(delegate: "GPU" | "CPU" = this.delegate): Promise<void> {
+    this.close();
+    try { await this.create(delegate); }
+    catch (e) { if (delegate === "GPU") await this.create("CPU"); else throw e; }
+  }
 
   private async create(delegate: "GPU" | "CPU") {
     this.close();
+    // Our own canvas, so we can see when the browser drops its WebGL context.
+    const canvas = document.createElement("canvas");
+    canvas.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      this.onContextLost?.();
+    });
+    this.contextLost = false;
     this.lm = await FaceLandmarker.createFromOptions(this.fileset!, {
+      canvas,
       baseOptions: { modelAssetBuffer: this.model!, delegate },
       runningMode: "VIDEO",
       numFaces: 1,
@@ -65,6 +81,7 @@ export class MediaPipeFaceTracker {
 
   detect(video: HTMLVideoElement, nowMs: number): DetectResult {
     if (!this.lm) throw new Error("tracker not initialised");
+    if (this.contextLost) throw new Error("tracker graphics context lost");
     // VIDEO mode requires strictly increasing integer timestamps.
     const ts = Math.max(this.lastTs + 1, Math.round(nowMs));
     this.lastTs = ts;
