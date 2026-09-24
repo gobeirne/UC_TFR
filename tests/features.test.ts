@@ -20,3 +20,31 @@ describe("feature geometry", () => {
     expect(Math.abs(e2.pitch)).toBeCloseTo(0, 6);
   });
 });
+
+import { headToCamera, matrixAccessor } from "../src/tracking/FeatureExtractor";
+
+/** Column-major 4×4 from a yaw rotation (about Y) and translation. */
+function pose(yawDeg: number, tx: number, tz = -50): number[] {
+  const a = (yawDeg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+  return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, tx, 0, tz, 1];
+}
+
+describe("head-to-camera angle", () => {
+  it("detects column- and row-major layouts", () => {
+    const m = pose(10, 5);
+    const rowMajor = [0, 1, 2, 3].flatMap((r) => [0, 1, 2, 3].map((c) => m[c * 4 + r]));
+    expect(matrixAccessor(m)(0, 3)).toBeCloseTo(5);
+    expect(matrixAccessor(rowMajor)(0, 3)).toBeCloseTo(5);
+  });
+  it("is ~0 when the head points at the camera, even off-centre in the frame", () => {
+    expect(Math.abs(headToCamera(pose(0, 0))!.h)).toBeLessThan(0.01);
+    // Face 20 cm to the side, turned to point back at the camera:
+    const turn = (Math.atan2(20, 50) * 180) / Math.PI;
+    const a = headToCamera(pose(-turn, 20))!.h, b = headToCamera(pose(turn, 20))!.h;
+    expect(Math.min(Math.abs(a), Math.abs(b))).toBeLessThan(0.5);
+  });
+  it("grows with head rotation away from the camera", () => {
+    const h30 = Math.abs(headToCamera(pose(30, 0))!.h);
+    expect(h30).toBeGreaterThan(29); expect(h30).toBeLessThan(31);
+  });
+});

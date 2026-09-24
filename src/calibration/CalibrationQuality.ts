@@ -1,5 +1,6 @@
 import { QUALITY } from "../config/defaults";
 import type { CalibrationModel } from "./CalibrationModel";
+import type { DetectionMode } from "../config/defaults";
 
 export type Grade = "Excellent" | "Good" | "Marginal" | "Unable to distinguish";
 
@@ -59,3 +60,22 @@ export function gradeCalibration(m: Pick<CalibrationModel, "F" | "R" | "weights"
   }
   return { grade, dPrime, validFraction, usedFeatures: used.length, headShare, problems, suggestions: [...suggestions] };
 }
+
+const RANK: Grade[] = ["Unable to distinguish", "Marginal", "Good", "Excellent"];
+const gradeFromDPrime = (d: number): Grade =>
+  d >= QUALITY.excellentDPrime ? "Excellent" : d >= QUALITY.goodDPrime ? "Good" : d >= QUALITY.marginalDPrime ? "Marginal" : "Unable to distinguish";
+
+export interface ModeGrade { grade: Grade; dPrime: number; problem?: string }
+
+/** The grade that matters for the selected detection mode. */
+export function gradeForMode(m: CalibrationModel, mode: DetectionMode): ModeGrade {
+  const rel: ModeGrade = { grade: m.quality.grade, dPrime: m.quality.dPrime };
+  const eye: ModeGrade = !m.eye.usable
+    ? { grade: "Unable to distinguish", dPrime: 0, problem: m.eye.problem }
+    : { grade: m.quality.problems.length ? "Unable to distinguish" : gradeFromDPrime(m.eye.dPrime), dPrime: m.eye.dPrime };
+  if (mode === "fixed" || mode === "adaptive") return rel;
+  if (mode === "eye") return eye;
+  return RANK.indexOf(rel.grade) <= RANK.indexOf(eye.grade) ? { ...rel, problem: eye.problem } : eye;
+}
+
+export const gradeOk = (g: Grade) => g === "Excellent" || g === "Good";

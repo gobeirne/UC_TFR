@@ -5,22 +5,27 @@ import { TrackingEngine } from "./tracking/TrackingEngine";
 import type { App, Screen, ScreenName } from "./ui/app";
 import { HomeScreen } from "./ui/HomeScreen";
 import { StartScreen, PositionScreen } from "./ui/SetupScreens";
-import { CalibrateForwardScreen, CalibrateResponseScreen, ResultScreen } from "./ui/CalibrationScreen";
+import { CalibrateForwardScreen, CalibrateResponseScreen, CalibrateAddResponseScreen, ResultScreen } from "./ui/CalibrationScreen";
 import { ValidationScreen } from "./ui/ValidationScreen";
 import { TestScreen, SummaryScreen } from "./ui/TestScreen";
 import { DeveloperScreen } from "./ui/DeveloperScreen";
 import { SettingsScreen } from "./ui/SettingsScreen";
 import { AboutScreen } from "./ui/AboutScreen";
+import { RemoteScreen } from "./ui/RemoteScreen";
+import { CalibrationService } from "./calibration/CalibrationService";
+import { PairingManager } from "./pairing/PairingManager";
+import type { ResponseOutput } from "./outputs/ResponseOutput";
 
 const SCREENS: Record<ScreenName, Screen> = {
   home: HomeScreen, start: StartScreen, position: PositionScreen,
-  "calibrate-forward": CalibrateForwardScreen, "calibrate-response": CalibrateResponseScreen, result: ResultScreen,
+  "calibrate-forward": CalibrateForwardScreen, "calibrate-response": CalibrateResponseScreen,
+  "calibrate-add-response": CalibrateAddResponseScreen, result: ResultScreen,
   validation: ValidationScreen, test: TestScreen, summary: SummaryScreen,
-  developer: DeveloperScreen, settings: SettingsScreen, about: AboutScreen,
+  developer: DeveloperScreen, settings: SettingsScreen, about: AboutScreen, remote: RemoteScreen,
 };
-const NEEDS_SESSION: ScreenName[] = ["start", "position", "calibrate-forward", "calibrate-response", "result", "validation", "test", "summary", "developer"];
-const NEEDS_CALIBRATION: ScreenName[] = ["result", "validation", "test", "summary"];
-const NEEDS_TRACKING: ScreenName[] = ["position", "calibrate-forward", "calibrate-response", "validation", "test", "developer"];
+const NEEDS_SESSION: ScreenName[] = ["start", "position", "calibrate-forward", "calibrate-response", "calibrate-add-response", "result", "validation", "test", "summary", "developer"];
+const NEEDS_CALIBRATION: ScreenName[] = ["validation", "test", "summary"];
+const NEEDS_TRACKING: ScreenName[] = ["position", "calibrate-forward", "calibrate-response", "calibrate-add-response", "validation", "test", "developer"];
 
 const root = document.getElementById("app")!;
 // The video must stay in the document between screens or browsers pause it.
@@ -35,8 +40,28 @@ let cleanup: void | (() => void);
 
 const app: App = {
   root, settings, camera, engine,
+  screen: "home",
+  calibration: undefined as unknown as CalibrationService,
+  pairing: undefined as unknown as PairingManager,
+  outputFactories: new Map<string, () => ResponseOutput>(),
+  registerPipeline(p) {
+    app.activePipeline = p;
+    for (const [name, make] of app.outputFactories) if (!p.outputs.list().includes(name)) p.outputs.add(make());
+    const unsub = app.calibration.on((e) => {
+      // Nothing may register as a response while a position is being recorded.
+      if (e.type === "recording" && e.progress === 0) p.suspend(performance.now());
+      if (e.type === "recorded") p.resume();
+      if (e.type === "applied") p.setModel(e.model);
+    });
+    return () => {
+      unsub();
+      for (const name of app.outputFactories.keys()) p.outputs.remove(name);
+      if (app.activePipeline === p) app.activePipeline = undefined;
+    };
+  },
   go(name) {
     if (NEEDS_SESSION.includes(name) && !app.session) name = "home";
+    if (name === "result" && !app.session?.pendingCalibration && !app.session?.calibration) name = app.session ? "position" : "home";
     if (NEEDS_CALIBRATION.includes(name) && !app.session?.calibration) name = app.session ? "position" : "home";
     if (NEEDS_TRACKING.includes(name) && !app.engine.ready) name = app.session ? "start" : "home";
     try { cleanup?.(); } catch (e) { console.error(e); }
@@ -44,6 +69,7 @@ const app: App = {
     camera.mount(parking, "hidden-video-el");
     root.replaceChildren();
     document.body.dataset.screen = name;
+    app.screen = name;
     window.scrollTo(0, 0);
     cleanup = SCREENS[name](app);
   },
@@ -61,6 +87,8 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("sim")) {
   (window as any).__app = app;
 }
 
+app.calibration = new CalibrationService(app);
+app.pairing = new PairingManager(app);
 app.go("home");
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {

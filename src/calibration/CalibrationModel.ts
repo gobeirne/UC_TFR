@@ -1,6 +1,7 @@
 import { QUALITY } from "../config/defaults";
 import { FEATURE_INFO, FEATURE_KEYS, type FeatureKey, type FeatureVector, type TrackingSample } from "../tracking/TrackingSample";
 import { gradeCalibration, type QualityReport } from "./CalibrationQuality";
+import { buildEyeContactModel, type EyeContactModel } from "./EyeContactModel";
 
 export interface StateStats {
   total: number;          // samples recorded, including invalid
@@ -35,6 +36,10 @@ export interface CalibrationModel {
   /** 95th percentile off-axis distance seen during calibration. */
   offAxisP95: number;
   quality: QualityReport;
+  /** Posture-independent eye-contact model (may be unusable; see eye.problem). */
+  eye: EyeContactModel;
+  /** Number of response recordings used (extra ones refine eye-contact mode). */
+  responseRecordings: number;
   createdAt: number;
 }
 
@@ -117,7 +122,13 @@ export function computeWeights(F: StateStats, R: StateStats): FeatureWeight[] {
   return out;
 }
 
-export function buildCalibration(fSamples: TrackingSample[], rSamples: TrackingSample[], now = 0): CalibrationModel {
+/**
+ * rSamplesOrSets: one response recording, or several (e.g. in different postures).
+ * The relative model uses the most recent; the eye-contact model uses them all.
+ */
+export function buildCalibration(fSamples: TrackingSample[], rSamplesOrSets: TrackingSample[] | TrackingSample[][], now = 0, eyeScaleDeg = 40): CalibrationModel {
+  const rSets = (rSamplesOrSets.length && Array.isArray(rSamplesOrSets[0]) ? rSamplesOrSets : [rSamplesOrSets]) as TrackingSample[][];
+  const rSamples = rSets[rSets.length - 1] ?? [];
   const F = summarise(fSamples);
   const R = summarise(rSamples);
   const weights = computeWeights(F, R);
@@ -131,6 +142,8 @@ export function buildCalibration(fSamples: TrackingSample[], rSamples: TrackingS
   partial.rScores = rp.map((p) => p.score);
   partial.offAxisP95 = percentile([...fp, ...rp].map((p) => p.offAxis), 95) || 0;
   partial.quality = gradeCalibration(partial);
+  partial.eye = buildEyeContactModel(fSamples, rSets, eyeScaleDeg);
+  partial.responseRecordings = rSets.length;
   partial.createdAt = now;
   return partial;
 }

@@ -9,6 +9,12 @@ export interface MachineParams {
   activationDwellMs: number;
   releaseThreshold: number;
   releaseDwellMs: number;
+  /**
+   * Invalid samples shorter than this (e.g. a blink hiding the eyes) neither end
+   * nor start a response. They can only ever HOLD the current state: an OFF→ON
+   * transition is impossible during invalid data. 0 = strict (no grace).
+   */
+  trackingLossGraceMs?: number;
 }
 
 export interface MachineInput {
@@ -17,6 +23,11 @@ export interface MachineInput {
   score: number;
   /** If false the sample cannot contribute to activation (off-axis gate). */
   canActivate?: boolean;
+  /**
+   * The camera/app stopped (backgrounded, frozen, restarting) rather than the
+   * face briefly not being tracked. No grace: any response ends immediately.
+   */
+  hardLoss?: boolean;
 }
 
 export type TransitionName = "armed" | "candidate_on" | "candidate_cancel" | "response_on" | "candidate_off" | "release_cancel" | "response_off" | "tracking_lost";
@@ -34,6 +45,7 @@ export class ResponseStateMachine {
   state: MachineState = "TRACKING_LOST"; // must see a clear forward state before arming
   private since = 0; // start time of current dwell
   private dwelling = false;
+  private invalidSince: number | null = null;
 
   constructor(private params: () => MachineParams) {}
 
@@ -41,7 +53,7 @@ export class ResponseStateMachine {
     return this.state === "RESPONSE_ACTIVE" || this.state === "RELEASE_CANDIDATE";
   }
 
-  reset(): void { this.state = "TRACKING_LOST"; this.dwelling = false; }
+  reset(): void { this.state = "TRACKING_LOST"; this.dwelling = false; this.invalidSince = null; }
 
   /** Returns transitions in order. "response_on"/"response_off" are the only externally meaningful ones. */
   update(inp: MachineInput): Transition[] {
@@ -54,6 +66,12 @@ export class ResponseStateMachine {
     };
 
     if (!inp.valid) {
+      this.invalidSince ??= t;
+      const grace = inp.hardLoss ? 0 : p.trackingLossGraceMs ?? 0;
+      // A candidate never survives invalid data: activation needs continuous valid evidence.
+      if (this.state === "RESPONSE_CANDIDATE") go("FORWARD_ARMED", "candidate_cancel");
+      // Brief gap (blink): hold whatever we have.
+      if (t - this.invalidSince < grace && this.state !== "TRACKING_LOST") return out;
       // Missing data never produces a response; an active response is cancelled.
       if (this.state !== "TRACKING_LOST") {
         if (this.active) go("TRACKING_LOST", "response_off");
@@ -63,6 +81,7 @@ export class ResponseStateMachine {
       return out;
     }
 
+    this.invalidSince = null;
     const high = inp.score >= p.activationThreshold && inp.canActivate !== false;
     const low = inp.score <= p.releaseThreshold;
 

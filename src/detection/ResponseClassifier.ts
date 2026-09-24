@@ -1,5 +1,5 @@
 import { projectFeatures, type CalibrationModel } from "../calibration/CalibrationModel";
-import type { TrackingSample } from "../tracking/TrackingSample";
+import type { FeatureVector, TrackingSample } from "../tracking/TrackingSample";
 
 export interface Classification {
   valid: boolean;
@@ -8,6 +8,8 @@ export interface Classification {
   /** False when the sample is too far off the F→R line to count as a response (e.g. looking down). */
   onAxis: boolean;
   coverage: number;
+  /** Every mode's score this frame (for comparison graphs); undefined = invalid. */
+  scores?: { fixed?: number; adaptive?: number; eye?: number; eyeAngle?: number };
 }
 
 /** Personalised projection classifier. Knows nothing about screens or outputs. */
@@ -21,9 +23,10 @@ export class ResponseClassifier {
     return Math.max(g, 3 * this.model.offAxisP95);
   }
 
-  classify(s: TrackingSample): Classification {
+  /** fMean: an adapted forward baseline (adaptive mode); defaults to the calibrated one. */
+  classify(s: TrackingSample, fMean: FeatureVector = this.model.F.mean): Classification {
     if (!s.valid) return { valid: false, score: 0, offAxis: 0, onAxis: false, coverage: 0 };
-    const p = projectFeatures(s.features, this.model.F.mean, this.model.weights);
+    const p = projectFeatures(s.features, fMean, this.model.weights);
     return { ...p, onAxis: p.offAxis <= this.effectiveGate() };
   }
 }

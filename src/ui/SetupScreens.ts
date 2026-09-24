@@ -2,6 +2,7 @@ import type { Screen } from "./app";
 import { h } from "./dom";
 import { CameraError } from "../camera/CameraManager";
 import { createPreview } from "./Preview";
+import { pairBadge } from "./widgets";
 import { INVALID_REASON_TEXT, type TrackingSample } from "../tracking/TrackingSample";
 
 const CAMERA_HELP: Record<string, string> = {
@@ -47,6 +48,7 @@ export const StartScreen: Screen = (app) => {
 /** Step 1: position the device. */
 export const PositionScreen: Screen = (app) => {
   const preview = createPreview(app, { guide: true, landmarks: app.settings.developerMode });
+  const pair = pairBadge(app);
   const face = h("span", {}, "—"), quality = h("span", {}, "—"), size = h("span", {}, "—");
   const cont = h("button", { class: "primary", disabled: true, onclick: () => app.go("calibrate-forward") }, "Continue");
   const camSelect = h("select", { class: "inline", onchange: async (e: Event) => {
@@ -97,6 +99,8 @@ export const PositionScreen: Screen = (app) => {
     why,
     camRow,
     h("div", { class: "actions" }, cont, restartBtn, h("button", { onclick: () => app.endSession() }, "Cancel")),
+    pair.el,
+    h("p", { class: "fineprint" }, "With a clinician remote paired, you can record the calibration positions, start and pause testing, and see responses from the remote — no line of sight to this screen needed."),
   ));
-  return () => { unsub(); preview.dispose(); };
+  return () => { unsub(); preview.dispose(); pair.dispose(); };
 };

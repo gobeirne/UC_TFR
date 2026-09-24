@@ -1,6 +1,9 @@
 import type { Settings } from "../config/defaults";
 
-interface Pt { t: number; s: number; valid: boolean; gated: boolean }
+interface Pt { t: number; s: number; valid: boolean; gated: boolean; extra?: { fixed?: number; adaptive?: number; eye?: number } }
+
+/** Faint comparison lines for the modes not currently selected. */
+export const SERIES_COLOURS = { fixed: "#8a8a8a", adaptive: "#6cc4ff", eye: "#ff8ad8" } as const;
 
 /** Scrolling score-vs-time graph with threshold lines and ON/OFF markers. Developer mode only. */
 export class ScoreGraph {
@@ -14,7 +17,7 @@ export class ScoreGraph {
     const loop = () => { this.raf = requestAnimationFrame(loop); this.draw(); };
     loop();
   }
-  push(t: number, s: number, valid: boolean, gated: boolean) { this.pts.push({ t, s, valid, gated }); this.trim(t); }
+  push(t: number, s: number, valid: boolean, gated: boolean, extra?: Pt["extra"]) { this.pts.push({ t, s, valid, gated, extra }); this.trim(t); }
   mark(t: number, on: boolean) { this.marks.push({ t, on }); }
   private trim(now: number) {
     while (this.pts.length && now - this.pts[0].t > this.windowMs) this.pts.shift();
@@ -41,6 +44,19 @@ export class ScoreGraph {
     hline(this.settings.releaseThreshold, "#ffb020", [6, 4]);
     g.setLineDash([]);
     for (const m of this.marks) { g.strokeStyle = m.on ? "#00ff3c" : "#888"; g.beginPath(); g.moveTo(X(m.t), 0); g.lineTo(X(m.t), hgt); g.stroke(); }
+    // Comparison lines first, underneath.
+    g.lineWidth = 1.25;
+    for (const key of ["fixed", "adaptive", "eye"] as const) {
+      g.strokeStyle = SERIES_COLOURS[key]; g.globalAlpha = 0.55; g.beginPath();
+      let pen = false;
+      for (const p of this.pts) {
+        const v = p.extra?.[key];
+        if (v === undefined) { pen = false; continue; }
+        if (!pen) { g.moveTo(X(p.t), Y(v)); pen = true; } else g.lineTo(X(p.t), Y(v));
+      }
+      g.stroke();
+    }
+    g.globalAlpha = 1;
     g.lineWidth = 2;
     let prev: Pt | undefined;
     for (const p of this.pts) {

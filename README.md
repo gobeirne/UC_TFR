@@ -6,7 +6,9 @@ The device sits 30–60° to one side of the client. The client looks straight a
 
 It is not a diagnostic system, not an eye-tracking medical device, not a validated replacement for a patient response button, and not certified medical equipment. It does not determine hearing threshold.
 
-It runs entirely in the browser: iPhone/iPad Safari, Android Chrome, and desktop Chrome/Edge/Safari/Firefox with a webcam. One codebase, no app store, no account, no server.
+It runs entirely in the browser: iPhone/iPad Safari, Android Chrome, and desktop Chrome/Edge/Safari/Firefox with a webcam. One codebase, no app store, no account, no server of its own.
+
+Optionally, a second device can be paired as a **clinician remote** (using the RapidPair component from UC KTT): it shows the response without line of sight to the client's screen, and lets the clinician recalibrate, start and pause testing, and change detection mode from where they sit.
 
 ---
 
@@ -31,7 +33,7 @@ Phone browsers only allow the camera over HTTPS. Either:
 
 ### Trying the flow with no camera or face
 
-`npm run dev`, then open `http://localhost:5173/?sim`. Tracking is replaced by synthetic data: **hold Space** to “look at the device”, **hold L** to simulate lost tracking. Development builds only; it is stripped from production.
+`npm run dev`, then open `http://localhost:5173/?sim`. Tracking is replaced by a synthetic client: **hold Space** to “look at the device”, **← / →** to shift their resting posture, **hold L** to simulate lost tracking. Add `&loopback` in one tab and `?loopback` in another to pair them as patient device and clinician remote without RapidPair. Development builds only; both are stripped from production.
 
 ---
 
@@ -68,9 +70,43 @@ The ordinary website works just as well. After one complete session everything n
 
 ---
 
+## Detection modes
+
+Chosen in Settings, on the try-out and calibration-result screens, or from the clinician remote. All four are computed on every frame; the developer graph shows them side by side.
+
+| Mode | How it decides | Best for | Weak spot |
+|---|---|---|---|
+| **Fixed calibration** | Distance along the line from the recorded forward position to the recorded response position | Clients who can hold a steady posture | A sustained change of posture shifts the baseline — worst when detection relies mainly on head movement (e.g. glasses hide the eyes) |
+| **Adaptive baseline** (default) | As fixed, but the forward position slowly follows gradual drift (20 s time constant) | Slumping, settling, slow leaning | Only frames that already look like "forward" teach it; sudden movements and long looks elsewhere are ignored. Movement toward the response direction is capped at half the calibrated distance, with a "consider recalibrating" warning |
+| **Eye contact** | Estimated angle between the client's gaze and the camera: head direction (measured relative to the face→camera line, so it survives the client moving in their seat) plus the model's eye-rotation estimate | Clients whose posture changes a lot, including involuntary movement | Needs good lighting on the face; noisier with glasses; needs the device ≥ ~8° from forward gaze (30–60° recommended) |
+| **Cautious (both agree)** | A response needs both adaptive and eye contact to agree | Minimising false responses | May miss weak or partial looks |
+
+Eye contact learns three numbers per person: what "looking at the device" measures (bias), how far forward gaze is from the device, and how much eye rotation counts relative to head rotation. The last is a prior (40°/unit) unless you **add another response posture**: ask the client to sit a little differently and look at the device again. Two or more postures let it be fitted from the data.
+
+All modes share the same thresholds, dwell times and state machine, and the same safety rules.
+
+Spasm handling applies in every mode: activation needs the score held for the activation dwell (150 ms default; raise it in developer mode for clients with brief involuntary movements). Blinks and momentary tracking gaps up to 300 ms neither start nor end a response; the camera or app stopping ends a response immediately.
+
+## Clinician remote (optional second device)
+
+1. On the device facing the client: **Start new session** and get to the position screen.
+2. On the clinician's device (phone, tablet or laptop), open the same web address and tap **Use this device as the clinician remote**. It shows a connection code.
+3. On the client's device, tap **Pair clinician remote** and enter the code (or use *LAN QR code* when there's no internet — both devices on the same Wi-Fi). Confirm the matching verification codes on both.
+
+The client's device releases its camera while the pairing dialog is open (the QR option uses the camera; iPhones can't share it) and restarts it afterwards.
+
+From the remote you can:
+- **See responses:** a large lamp mirrors the client's screen, with a response counter.
+- **Recalibrate at any time:** ask the client to look ahead and tap *Record forward position*; ask them to look at the device and tap *Record response position*. Either can be refreshed on its own, even mid-test. The client's screen stays black while recording and nothing counts as a response. A new calibration is applied automatically only if it grades Good or Excellent for the current mode; otherwise the previous one stays in use and you're told why (a Marginal one can be applied deliberately, with confirmation).
+- **Add another response posture** (eye-contact and cautious modes).
+- **Start and pause testing**, change detection mode, and restart tracking on the client's device.
+
+If the link drops, or the remote hears nothing for 1.5 s, the lamp turns **grey and hatched with "No signal"**. It never shows black, so a lost link can't be mistaken for "no response". The client's device keeps working on its own screen regardless. After a disconnect, the client's device does not pop the pairing dialog up in front of the client; re-pair from it when convenient.
+
 ## Privacy
 
 - All tracking runs in the page (MediaPipe Face Landmarker, WebAssembly, on this device).
+- **Pairing (optional)** sends only response events, scores, tracking state and commands between the two devices, over RapidPair's end-to-end encrypted, code-verified channel. Never video, images, landmarks or face measurements. Setting up a code-based pairing uses the UC pairing Firebase project (to exchange connection details) and, if the network needs it, a Cloudflare TURN relay (which carries only encrypted data). The LAN QR option uses neither. Nothing is contacted until someone taps a pairing button.
 - Video frames are never uploaded, transmitted, recorded, stored or cached. The service worker only caches the app's own files and the model.
 - Camera only; the microphone is never requested.
 - No login, patient identity, analytics or telemetry. Only preferences are saved (localStorage).
@@ -150,6 +186,10 @@ If problems persist, try *Settings › Processor › CPU*. Developer mode shows 
 
 ## Current limitations
 
+- **Detection modes and the remote are tested only against synthetic data** (unit tests and a simulated client in two paired browser tabs), not yet against real faces. The eye-contact model's accuracy with real MediaPipe gaze estimates, glasses and poor lighting is the key unknown. Use developer mode's comparison graph with real clients before relying on it.
+- Code-based pairing depends on the same Firebase project and TURN credential service as KTT. If pairing from this app's address fails but KTT works, check whether the Firebase API key or the TURN worker restricts which websites may use them. LAN QR pairing doesn't need either.
+- Reconnecting after a dropped link needs a new code entered on the client's device (KTT's saved-secret "fast reconnect" isn't ported yet).
+
 - **Not yet validated on real clients.** Thresholds, dwell times, quality grades and the gate are reasoned starting points, checked with synthetic data and unit tests, not clinical data. The immediate next step is the informal robustness test: left vs right placement, glasses, eye-only vs head movement, lighting, several phones.
 - Built and tested in desktop Chromium with a simulated tracker and fake camera. The real MediaPipe path compiles and the loading and error paths were exercised, but it has not yet been run against a real face on an iPhone. Expect to tune on-device.
 - Movement detection is heuristic (face position/size drift while looking forward, and screen orientation changes). It warns; it never recalibrates.
@@ -166,9 +206,10 @@ src/
   config/        defaults.ts (every tunable), settings.ts (preferences only)
   camera/        CameraManager.ts
   tracking/      TrackingSample.ts, landmarks.ts, FeatureExtractor.ts, MediaPipeFaceTracker.ts, TrackingEngine.ts
-  calibration/   CalibrationModel.ts, CalibrationQuality.ts
-  detection/     ResponseClassifier.ts, ResponseStateMachine.ts, ResponsePipeline.ts (+ movement monitor)
-  outputs/       ResponseOutput.ts, OutputManager.ts, VisualOutput.ts
+  calibration/   CalibrationModel.ts, CalibrationQuality.ts, EyeContactModel.ts, CalibrationService.ts
+  detection/     ResponseClassifier.ts, ResponseStateMachine.ts, ResponsePipeline.ts (+ movement monitor), DriftTracker.ts
+  outputs/       ResponseOutput.ts, OutputManager.ts, VisualOutput.ts, PairedOutput.ts
+  pairing/       protocol.ts, PairLink.ts, RapidPairLink.ts (wraps vendor/rapidpair.js), LoopbackLink.ts (dev), PairingManager.ts
   logging/       SessionLogger.ts, CsvExporter.ts
   platform/      capabilities, wake lock, fullscreen, dev beep
   ui/            one file per screen, plus preview, score graph, feature table
@@ -176,4 +217,5 @@ src/
   sw-template.js service worker (precache list injected at build)
 tests/           unit tests + synthetic simulation
 scripts/         fetch-assets.mjs (WASM copy + model download)
+public/vendor/   rapidpair.js and its QR/compression libraries, copied unchanged from UCKTT v2 (loaded only when pairing is used)
 ```

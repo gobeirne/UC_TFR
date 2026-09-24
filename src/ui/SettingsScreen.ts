@@ -2,6 +2,7 @@ import type { Screen } from "./app";
 import { h } from "./dom";
 import type { Settings } from "../config/defaults";
 import { resetTunables } from "../config/settings";
+import { modePicker } from "./widgets";
 
 export const SettingsScreen: Screen = (app) => {
   const s = app.settings;
@@ -18,6 +19,8 @@ export const SettingsScreen: Screen = (app) => {
 
   app.root.append(h("main", { class: "page" },
     h("h1", {}, "Settings"),
+    h("h2", {}, "Detection"),
+    modePicker(app),
     h("h2", {}, "Test screen"),
     toggle("trackingLostMarker", "Show a small amber dot when tracking is lost", "Bottom-right corner, after 2 seconds without tracking."),
     h("h2", {}, "Research"),

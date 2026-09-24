@@ -20,6 +20,7 @@ export const TestScreen: Screen = (app) => {
   const pipeline = new ResponsePipeline(s.calibration!, app.settings, s.logger);
   const screen = h("div", { class: "test-screen" });
   pipeline.outputs.add(new VisualResponseOutput(screen));
+  const unregister = app.registerPipeline(pipeline);
 
   const holder = h("div", { class: "hidden-video" });
   app.camera.mount(holder, "hidden-video-el");
@@ -80,6 +81,7 @@ export const TestScreen: Screen = (app) => {
   return () => {
     unsub(); cancelHold();
     pipeline.stop(performance.now());
+    unregister();
     pipeline.outputs.disposeAll();
     void wake.release(); void exitFullscreen();
     document.removeEventListener("keydown", onKey);

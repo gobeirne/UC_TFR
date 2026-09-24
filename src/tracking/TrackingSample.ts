@@ -47,6 +47,20 @@ export const INVALID_REASON_TEXT: Record<InvalidReason, string> = {
   recovering: "restarting camera and tracking…",
 };
 
+/**
+ * Camera-referenced geometry for eye-contact mode.
+ * headOffH/V: angle (°) between where the face points and the direction from the
+ * face to the camera — ≈0 when the head points at the device, whatever the
+ * client's posture or position in the frame.
+ * eyeH/V: eye-in-head rotation from the model's gaze estimates (unitless, ≈0 straight).
+ */
+export interface GazeGeometry {
+  headOffH: number;
+  headOffV: number;
+  eyeH?: number;
+  eyeV?: number;
+}
+
 export interface TrackingSample {
   /** performance.now() when the frame was handed to the tracker. */
   frameTimeMs: number;
@@ -59,6 +73,7 @@ export interface TrackingSample {
   faceScale?: number;
   faceCentreX?: number;
   faceCentreY?: number;
+  gaze?: GazeGeometry;
   /** Raw landmarks, kept only in memory for the developer overlay. Never stored. */
   debugLandmarks?: { x: number; y: number }[];
 }

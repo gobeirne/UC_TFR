@@ -16,9 +16,11 @@ export const HomeScreen: Screen = (app) => {
         !window.isSecureContext ? h("p", {}, "Open the app over HTTPS (or on localhost during development).") : null) : null,
       h("div", { class: "actions" },
         h("button", { class: "primary", disabled: missing.length > 0, onclick: () => { app.session = newSession(app.settings.participantCode); app.go("start"); } }, "Start new session"),
+        h("button", { onclick: () => void app.pairing.openAsClinician().catch((e) => alert(`Pairing could not start: ${e?.message ?? e}`)) }, "Use this device as the clinician remote"),
         h("button", { onclick: () => app.go("settings") }, "Settings"),
         h("button", { onclick: () => app.go("about") }, "About, privacy and installing"),
       ),
+      h("p", { class: "hint" }, "Two devices? Start a session on the one facing the client, then pair it with a second device used as the clinician remote."),
       h("p", { class: "fineprint" }, "Experimental touch-free patient-response interface for behavioural audiometry. Not a diagnostic or certified medical device."),
     ),
   );

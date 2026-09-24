@@ -85,7 +85,8 @@ export class TrackingEngine {
       this.pausedForHidden = true;
       this.stopLoop();
       this.camera.stop();
-    } else if (this.pausedForHidden) {
+      this.emit(invalidSample(performance.now(), "stalled")); // end any response now, not after the stall timeout
+    } else if (this.pausedForHidden && !this.holdPaused?.()) {
       this.pausedForHidden = false;
       void this.recover("returned to the app", true);
     }
@@ -103,6 +104,7 @@ export class TrackingEngine {
     this.lastRecoveryAt = performance.now();
     console.warn(`Tracking recovery: ${reason}`);
     this.stopLoop();
+    this.emit(invalidSample(performance.now(), "recovering"));
     try {
       if (restartCamera || !this.camera.running) await this.camera.start(this.settings.cameraDeviceId, this.settings.cameraResolution);
       const toCpu = this.tracker.delegate === "GPU" && reason.startsWith("repeated tracking errors");
@@ -116,6 +118,24 @@ export class TrackingEngine {
       this.sawFace = false;
       if (this.running && document.visibilityState === "visible") this.resumeLoop();
     }
+  }
+
+  /** While this returns true (pairing dialog open), returning to the app does not restart the camera. */
+  holdPaused?: () => boolean;
+
+  /** Release the camera while a pairing dialog might need it (QR scanning). Returns false if not running. */
+  pauseForPairing(): boolean {
+    if (!this.running || this.simulate) return false;
+    this.pausedForHidden = true; // reuse the "paused" path: watchdog keeps emitting invalid samples
+    this.stopLoop();
+    this.camera.stop();
+    this.emit(invalidSample(performance.now(), "stalled"));
+    return true;
+  }
+  async resumeAfterPairing(): Promise<void> {
+    if (!this.pausedForHidden) return;
+    this.pausedForHidden = false;
+    await this.recover("resumed after pairing", true);
   }
 
   /** Manual "Restart camera and tracking". */

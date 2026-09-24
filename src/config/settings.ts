@@ -12,6 +12,7 @@ export function loadSettings(): Settings {
       for (const k of Object.keys(DEFAULTS) as (keyof Settings)[]) {
         if (k in saved && typeof saved[k] === typeof DEFAULTS[k]) (s as any)[k] = saved[k];
       }
+      if (!["fixed", "adaptive", "eye", "cautious"].includes(s.detectionMode)) s.detectionMode = DEFAULTS.detectionMode;
     }
   } catch { /* storage unavailable: use defaults */ }
   return s;
@@ -23,7 +24,7 @@ export function saveSettings(s: Settings): void {
 
 /** Resets detection/tracking tunables but keeps modes and camera choice. */
 export function resetTunables(s: Settings): void {
-  const keep: (keyof Settings)[] = ["developerMode", "researchLogging", "logFeatures", "participantCode", "cameraDeviceId", "devBeep"];
+  const keep: (keyof Settings)[] = ["detectionMode", "developerMode", "researchLogging", "logFeatures", "participantCode", "cameraDeviceId", "devBeep"];
   for (const k of Object.keys(DEFAULTS) as (keyof Settings)[]) {
     if (!keep.includes(k)) (s as any)[k] = DEFAULTS[k];
   }

@@ -66,3 +66,44 @@ describe("response state machine", () => {
     expect(ons).toBe(0);
   });
 });
+
+describe("tracking-loss grace (blinks)", () => {
+  const g = { ...params, trackingLossGraceMs: 300 };
+  const runG = (scores: (number | null)[]) => {
+    const m = new ResponseStateMachine(() => g); const names: string[] = [];
+    scores.forEach((s, i) => { for (const tr of m.update(s === null ? { timestampMs: i * DT, valid: false, score: 0 } : { timestampMs: i * DT, valid: true, score: s })) names.push(tr.name); });
+    return { m, ons: names.filter((n) => n === "response_on").length, offs: names.filter((n) => n === "response_off").length };
+  };
+  it("a blink during a held response does not end it", () => {
+    const r = runG([...Array(6).fill(0.05), ...Array(5).fill(0.9), null, null, null, 0.9, 0.9]);
+    expect(r.ons).toBe(1); expect(r.offs).toBe(0); expect(r.m.active).toBe(true);
+  });
+  it("a longer gap still cancels the response", () => {
+    const r = runG([...Array(6).fill(0.05), ...Array(5).fill(0.9), ...Array(8).fill(null)]);
+    expect(r.offs).toBe(1); expect(r.m.state).toBe("TRACKING_LOST");
+  });
+  it("invalid data during the activation dwell can never complete a response", () => {
+    const r = runG([...Array(6).fill(0.05), 0.9, null, null, null, 0.9]);
+    expect(r.ons).toBe(0);
+  });
+  it("a blink while armed does not require re-arming", () => {
+    const r = runG([...Array(6).fill(0.05), null, null, 0.05, 0.9, 0.9, 0.9, 0.9]);
+    expect(r.ons).toBe(1);
+  });
+});
+
+describe("hard loss (camera/app stopped)", () => {
+  it("ends an active response immediately, ignoring the blink grace", () => {
+    const m = new ResponseStateMachine(() => ({ ...params, trackingLossGraceMs: 300 }));
+    let t = 0; const names: string[] = [];
+    const feed = (i: MachineInput) => { for (const tr of m.update(i)) names.push(tr.name); };
+    for (let i = 0; i < 6; i++) feed({ timestampMs: (t += DT), valid: true, score: 0.05 });
+    for (let i = 0; i < 5; i++) feed({ timestampMs: (t += DT), valid: true, score: 0.9 });
+    expect(m.active).toBe(true);
+    feed({ timestampMs: (t += DT), valid: false, score: 0, hardLoss: true });
+    expect(m.active).toBe(false);
+    expect(names.filter((n) => n === "response_off").length).toBe(1);
+    feed({ timestampMs: (t += DT), valid: true, score: 0.9 });
+    expect(m.active).toBe(false); // must look forward before the next response
+  });
+});

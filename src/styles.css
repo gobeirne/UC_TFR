@@ -130,3 +130,32 @@ table.features, table.caps { border-collapse: collapse; font-size: 0.82rem; widt
 details summary { cursor: pointer; margin: 1rem 0 0.5rem; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) { .exit-ring.filling::after { animation-name: none; transform: scale(1); } }
+
+/* Pairing */
+button.small { min-height: 38px; padding: 0.35rem 0.8rem; font-size: 0.9rem; }
+.pair-badge { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem 0.75rem; margin: 1rem 0; color: var(--muted); }
+.pair-badge[data-state="live"] { border-color: var(--info); color: var(--info); }
+.pair-badge[data-state="stale"], .pair-badge[data-state="dead"] { border-color: var(--amber); color: var(--amber); }
+.mode-select { font: inherit; color: var(--ink); background: var(--raised); border: 1px solid #444; border-radius: 8px; padding: 0.55rem 0.7rem; min-height: 46px; width: 100%; }
+.mode-desc { margin-top: 0.2rem; font-size: 0.9rem; }
+
+/* Clinician remote */
+.remote-top { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.link-badge { border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.75rem; font-size: 0.85rem; color: var(--muted); }
+.link-badge[data-state="live"] { border-color: var(--info); color: var(--info); }
+.link-badge[data-state="stale"], .link-badge[data-state="dead"], .link-badge[data-state="down"] { border-color: var(--amber); color: var(--amber); }
+.remote-lamp { width: min(60vw, 13rem); }
+.remote-lamp[data-state="on"] { background: var(--response); border-color: var(--response); }
+.remote-lamp[data-state="off"] { background: #000; }
+.remote-lamp[data-state="unknown"] { background: repeating-linear-gradient(45deg, #2a2a2a 0 10px, #1a1a1a 10px 20px); border-color: var(--amber); }
+.lamp-text { text-align: center; font-weight: 600; max-width: none; }
+.remote-count { text-align: center; max-width: none; }
+.remote-section { border-top: 1px solid var(--line); margin-top: 1.25rem; }
+.status.bad { color: var(--red); } .status.warn { color: var(--amber); } .status.ok { color: var(--info); }
+
+/* RapidPair's dialog is white; keep this app's dark-theme element styles out of it. */
+.rp-modal { color: #222; line-height: 1.35; }
+.rp-modal h2, .rp-modal h3 { color: #222; }
+.rp-modal p { max-width: none; }
+.rp-modal button { color: #222; min-height: 0; font-weight: 500; }
+.rp-modal button:disabled { opacity: 0.55; }

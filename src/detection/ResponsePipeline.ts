@@ -1,4 +1,4 @@
-import type { Settings } from "../config/defaults";
+import type { DetectionMode, Settings } from "../config/defaults";
 import { MOVEMENT } from "../config/defaults";
 import type { CalibrationModel } from "../calibration/CalibrationModel";
 import { ResponseClassifier, type Classification } from "./ResponseClassifier";
@@ -6,41 +6,114 @@ import { ResponseStateMachine, type Transition } from "./ResponseStateMachine";
 import type { TrackingSample } from "../tracking/TrackingSample";
 import { OutputManager } from "../outputs/OutputManager";
 import type { SessionLogger } from "../logging/SessionLogger";
+import { DriftTracker } from "./DriftTracker";
+import { EyeContactClassifier } from "../calibration/EyeContactModel";
 
 export interface PipelineTick {
   sample: TrackingSample;
   c: Classification;
   transitions: Transition[];
+  mode: DetectionMode;
 }
 
 /**
- * sample → classifier → state machine → RESPONSE_ON/OFF → OutputManager.
- * The pipeline has no idea what the outputs do.
+ * sample → classifier(s) → state machine → RESPONSE_ON/OFF → OutputManager.
+ * The pipeline has no idea what the outputs do. All modes are scored every
+ * frame; the selected one drives the state machine.
  */
 export class ResponsePipeline {
-  readonly classifier: ResponseClassifier;
+  classifier!: ResponseClassifier;
+  eye?: EyeContactClassifier;
+  drift!: DriftTracker;
+  movement!: MovementMonitor;
   readonly machine: ResponseStateMachine;
   readonly outputs = new OutputManager();
   responses = 0;
   lastTick?: PipelineTick;
+  /** Set when the chosen mode can't run with this calibration and adaptive is used instead. */
+  modeFallback = "";
+  /** While suspended (e.g. recording a calibration) nothing can register as a response. */
+  suspended = false;
   private listeners = new Set<(t: PipelineTick) => void>();
-  readonly movement: MovementMonitor;
+  private lastMode?: DetectionMode;
 
-  constructor(model: CalibrationModel, settings: Settings, public logger?: SessionLogger) {
-    this.classifier = new ResponseClassifier(model, () => settings.offAxisGate);
+  constructor(model: CalibrationModel, private settings: Settings, public logger?: SessionLogger) {
     this.machine = new ResponseStateMachine(() => settings);
+    this.setModel(model);
+  }
+
+  get model(): CalibrationModel { return this.classifier.model; }
+
+  /** Swap in a new calibration. The client must look forward again before the next response counts. */
+  setModel(model: CalibrationModel) {
+    if (this.classifier) this.stop(performance.now());
+    this.classifier = new ResponseClassifier(model, () => this.settings.offAxisGate);
+    this.eye = model.eye?.usable ? new EyeContactClassifier(model.eye) : undefined;
+    this.drift = new DriftTracker(model, () => this.settings.driftTimeConstantS);
     this.movement = new MovementMonitor(model);
+    this.machine.reset();
   }
 
   onTick(fn: (t: PipelineTick) => void): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
 
+  suspend(t: number) { this.stop(t); this.suspended = true; }
+  resume() { this.suspended = false; this.machine.reset(); }
+
+  effectiveMode(): DetectionMode {
+    const m = this.settings.detectionMode;
+    if ((m === "eye" || m === "cautious") && !this.eye) {
+      this.modeFallback = `${m === "eye" ? "Eye-contact" : "Cautious"} mode isn't available with this calibration (${this.model.eye?.problem ?? "no eye-contact model"}); using adaptive baseline.`;
+      return "adaptive";
+    }
+    this.modeFallback = "";
+    return m;
+  }
+
   process(sample: TrackingSample): PipelineTick {
-    const c = this.classifier.classify(sample);
+    const mode = this.effectiveMode();
+    if (this.lastMode !== undefined && mode !== this.lastMode) {
+      // Changing mode mid-stream: end any response and require a forward look.
+      this.stop(sample.timestampMs);
+      this.logger?.logNote(sample.timestampMs, `mode_${mode}`);
+    }
+    this.lastMode = mode;
+
+    const fixed = this.classifier.classify(sample);
+    const adaptive = this.classifier.classify(sample, this.drift.forwardMean());
+    const eye = this.eye?.classify(sample);
+    this.drift.update(sample, adaptive.score, adaptive.valid, adaptive.onAxis);
+
+    let c: Classification;
+    switch (mode) {
+      case "fixed": c = fixed; break;
+      case "adaptive": c = adaptive; break;
+      case "eye": c = { valid: !!eye?.valid, score: eye?.score ?? 0, offAxis: 0, onAxis: true, coverage: 1 }; break;
+      case "cautious": c = {
+        valid: adaptive.valid && !!eye?.valid,
+        score: Math.min(adaptive.score, eye?.score ?? -Infinity),
+        offAxis: adaptive.offAxis, onAxis: adaptive.onAxis, coverage: adaptive.coverage,
+      }; break;
+    }
+    c = { ...c, scores: {
+      fixed: fixed.valid ? fixed.score : undefined,
+      adaptive: adaptive.valid ? adaptive.score : undefined,
+      eye: eye?.valid ? eye.score : undefined,
+      eyeAngle: eye?.valid ? eye.angle : undefined,
+    } };
+
+    if (this.suspended) {
+      const tick = { sample, c: { ...c, valid: false }, transitions: [], mode };
+      this.lastTick = tick;
+      for (const l of this.listeners) l(tick);
+      return tick;
+    }
+
     const transitions = this.machine.update({
       timestampMs: sample.timestampMs,
       valid: c.valid,
       score: c.score,
       canActivate: c.onAxis,
+      hardLoss: sample.invalidReason === "stalled" || sample.invalidReason === "recovering" || sample.invalidReason === "tracker-error",
     });
     for (const tr of transitions) {
       this.logger?.logTransition(tr, sample.frameTimeMs);
@@ -54,7 +127,7 @@ export class ResponsePipeline {
     }
     this.logger?.logSample(sample, c);
     if (this.machine.state === "FORWARD_ARMED") this.movement.update(sample);
-    const tick = { sample, c, transitions };
+    const tick = { sample, c, transitions, mode };
     this.lastTick = tick;
     for (const l of this.listeners) l(tick);
     return tick;
