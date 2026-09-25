@@ -172,7 +172,27 @@ Inference runs throttled at 20 Hz by default (adjustable), with 720p capture for
 
 ---
 
+## Diagnostics
+
+*Home › Diagnostics*, or the Diagnostics button on the position screen. It shows, live, every step from camera to tracker:
+- camera stream state;
+- video element state and any `play()` error;
+- new frames per second;
+- frame brightness, which catches black frames;
+- tracker configuration, model and engine;
+- inference rate and errors;
+- what happened to recent frames (face / no face / edge / error);
+- the last tracker error and the recovery log.
+
+It shows both the camera preview and "what the tracker receives".
+
+The **tracker self-test** runs a few seconds each of GPU and CPU processing, with and without the app-supplied canvas, and with the live video or a copied still frame. It reports which setups find a face and offers **Use this setup**. The choice is saved on the device. It can also be set by hand in *Settings › Tracking*.
+
+**Copy report** or **Share report** produces a plain-text summary: no images, no identifiers beyond the browser's user-agent string.
+
 ## Troubleshooting: “Face detected: No” although the face is in view
+
+Run Diagnostics first. Since 0.2.2, iPhones and iPads use the tracker's own canvas by default, which was the configuration in 0.1.0. Tapping the screen resumes a camera picture the browser has paused.
 
 iPhones in particular switch off the camera and discard the tracker's graphics memory when the app goes to the background, the screen locks, or another app uses the camera. Since 0.1.1 the app handles this itself:
 

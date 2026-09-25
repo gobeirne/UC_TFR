@@ -48,6 +48,10 @@ export interface Settings {
   // Tracking
   inferenceHz: number;
   delegate: "auto" | "GPU" | "CPU";
+  /** How frames reach the tracker: the live video element, or a copied still (works around some iOS video-texture problems). */
+  inputMode: "video" | "canvas";
+  /** Let the app supply the tracker's canvas (context-loss detection). "auto" = off on iPhone/iPad. */
+  trackerCanvas: "auto" | "on" | "off";
   cameraDeviceId: string; // "" = front camera by facingMode
   cameraResolution: number; // 480 or 720
 
@@ -82,6 +86,8 @@ export const DEFAULTS: Readonly<Settings> = Object.freeze({
 
   inferenceHz: 20,
   delegate: "auto",
+  inputMode: "video",
+  trackerCanvas: "auto",
   cameraDeviceId: "",
   cameraResolution: 720,
 

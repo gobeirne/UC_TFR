@@ -1,6 +1,7 @@
 import type { Settings } from "../config/defaults";
 import type { CameraManager } from "../camera/CameraManager";
 import { MediaPipeFaceTracker } from "./MediaPipeFaceTracker";
+import { isIOS } from "../platform/capabilities";
 import { extractFeatures } from "./FeatureExtractor";
 import { invalidSample, type TrackingSample } from "./TrackingSample";
 
@@ -19,6 +20,12 @@ export interface EngineStats {
   videoResumes: number;
   gaveUp: string;
   log: RecoveryLogEntry[];
+  lastError: string;
+  lastFaces: number;
+  inputMode: string;
+  ownCanvas: boolean;
+  /** Share of recent samples by outcome, last ~5 s. */
+  outcomes: Record<string, number>;
 }
 
 export interface RecoveryLogEntry { at: number; reason: string; action: "resumed video" | "restarted camera" | "rebuilt tracker" | "gave up" }
@@ -53,6 +60,10 @@ export class TrackingEngine {
   /** Non-empty when automatic camera restarts have been stopped to break a loop. */
   gaveUp = "";
   readonly recoveryLog: RecoveryLogEntry[] = [];
+  private outcomes: { t: number; k: string }[] = [];
+  private copyCanvas?: HTMLCanvasElement;
+  /** Set by diagnostics to pause normal inference while it runs its own tests. */
+  paused = false;
   private rvfcHandle = 0; private rafHandle = 0; private watchdog = 0;
   private lastFrameCb = 0;
   private forceRaf = false;
@@ -143,7 +154,7 @@ export class TrackingEngine {
     try {
       if (restartCamera || !this.camera.running) await this.camera.start(this.settings.cameraDeviceId, this.settings.cameraResolution);
       const toCpu = this.tracker.delegate === "GPU" && reason.startsWith("repeated tracking errors");
-      if (!this.simulate) await this.tracker.rebuild(toCpu ? "CPU" : this.tracker.delegate);
+      if (!this.simulate) await this.tracker.rebuild(toCpu ? { delegate: "CPU" } : {});
     } catch (e) {
       console.error("Recovery failed", e);
       this.lastRecovery = `${reason} — recovery failed: ${(e as Error)?.message ?? e}`;
@@ -178,11 +189,29 @@ export class TrackingEngine {
 
   subscribe(fn: (s: TrackingSample) => void): () => void { this.subs.add(fn); return () => this.subs.delete(fn); }
 
+  /** Whether to supply the tracker's canvas under the current settings. */
+  wantOwnCanvas(): boolean {
+    const t = this.settings.trackerCanvas;
+    return t === "on" || (t === "auto" && !isIOS());
+  }
+
   /** New session: first time, load everything; afterwards, start from a fresh tracker anyway. */
   async initTracker(): Promise<void> {
     if (this.simulate) return;
-    if (this.tracker.ready) await this.tracker.rebuild();
-    else await this.tracker.init(this.settings.delegate);
+    if (this.tracker.ready) await this.tracker.rebuild({ ownCanvas: this.wantOwnCanvas() });
+    else await this.tracker.init(this.settings.delegate, this.wantOwnCanvas());
+  }
+
+  /** Copy the current video frame into a canvas (input mode "canvas", and diagnostics). */
+  frameToCanvas(): HTMLCanvasElement {
+    const v = this.camera.video;
+    this.copyCanvas ??= document.createElement("canvas");
+    const c = this.copyCanvas;
+    const scale = Math.min(1, 960 / Math.max(1, v.videoWidth));
+    const w = Math.max(1, Math.round(v.videoWidth * scale)), h = Math.max(1, Math.round(v.videoHeight * scale));
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    c.getContext("2d")!.drawImage(v, 0, 0, w, h);
+    return c;
   }
 
   start(): void {
@@ -247,7 +276,7 @@ export class TrackingEngine {
     }
     this.frameStamps.push(now); this.trim(this.frameStamps, now);
     this.lastCameraFrameAt = performance.now();
-    if (v.readyState < 2 || !v.videoWidth || !this.ready || this.busy) return;
+    if (v.readyState < 2 || !v.videoWidth || !this.ready || this.busy || this.paused) return;
     const interval = 1000 / Math.max(1, this.settings.inferenceHz);
     if (now - this.lastInfer < interval * 0.9) { this.skipped++; return; }
     this.lastInfer = now;
@@ -259,7 +288,8 @@ export class TrackingEngine {
     let sample: TrackingSample;
     try {
       this.busy = true;
-      const r = this.simulate ? { sim: this.simulate(frameTime) } : this.tracker.detect(this.camera.video, frameTime);
+      const r = this.simulate ? { sim: this.simulate(frameTime) }
+        : this.tracker.detect(this.settings.inputMode === "canvas" ? this.frameToCanvas() : this.camera.video, frameTime);
       const done = performance.now();
       this.inferTimes.push(done - frameTime); if (this.inferTimes.length > 60) this.inferTimes.shift();
       this.inferStamps.push(done); this.trim(this.inferStamps, done);
@@ -281,6 +311,8 @@ export class TrackingEngine {
       this.busy = false;
     }
     this.lastRealSampleAt = performance.now();
+    this.outcomes.push({ t: frameTime, k: sample.valid ? "face" : sample.invalidReason ?? "invalid" });
+    while (this.outcomes.length && frameTime - this.outcomes[0].t > 5000) this.outcomes.shift();
     this.emit(sample);
   }
 
@@ -294,7 +326,7 @@ export class TrackingEngine {
   private checkStall(): void {
     const now = performance.now();
     if (this.running && now - this.lastSampleAt > STALL_MS) this.emit(invalidSample(now, this.recovering ? "recovering" : "stalled"));
-    const active = this.running && !this.recovering && !this.pausedForHidden && document.visibilityState === "visible";
+    const active = this.running && !this.recovering && !this.pausedForHidden && !this.paused && document.visibilityState === "visible";
     if (active && now - this.lastCameraFrameAt > FROZEN_MS) {
       // 1. The video element was paused (iOS power saving): just resume it.
       if (this.camera.video.paused && this.camera.trackLive && now - this.lastNudgeAt > 1500) {
@@ -337,6 +369,11 @@ export class TrackingEngine {
       videoResumes: this.videoResumes,
       gaveUp: this.gaveUp,
       log: [...this.recoveryLog],
+      lastError: this.tracker.lastError,
+      lastFaces: this.tracker.lastFaces,
+      inputMode: this.settings.inputMode,
+      ownCanvas: this.tracker.ownCanvas,
+      outcomes: this.outcomes.reduce((a, o) => { a[o.k] = (a[o.k] ?? 0) + 1; return a; }, {} as Record<string, number>),
     };
   }
 }

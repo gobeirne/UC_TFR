@@ -6,12 +6,24 @@ const REMOTE_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landm
 
 export interface DetectResult { faces: number; raw?: RawFace }
 
+export interface TrackerConfig {
+  delegate: "GPU" | "CPU";
+  /** Supply our own canvas (lets us detect WebGL context loss). Off = let MediaPipe create it. */
+  ownCanvas: boolean;
+}
+
 /** The only module that touches MediaPipe. Swap this to change tracker. */
 export class MediaPipeFaceTracker {
   private lm?: FaceLandmarker;
   private lastTs = 0;
   delegate: "GPU" | "CPU" = "CPU";
+  ownCanvas = false;
   modelSource = "";
+  modelBytes = 0;
+  wasmPath = "";
+  lastError = "";
+  lastFaces = 0;
+  lastSourceSize = "";
   private fileset?: Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>;
   private model?: Uint8Array;
   /** Set when the browser discards the tracker's WebGL context (common on iOS after backgrounding). */
@@ -20,38 +32,50 @@ export class MediaPipeFaceTracker {
 
   get ready() { return !!this.lm; }
 
-  async init(pref: "auto" | "GPU" | "CPU"): Promise<void> {
+  async init(pref: "auto" | "GPU" | "CPU", ownCanvas: boolean): Promise<void> {
     const base = new URL(".", document.baseURI);
     this.fileset ??= await FilesetResolver.forVisionTasks(new URL("wasm", base).href.replace(/\/$/, ""));
+    this.wasmPath = this.fileset.wasmBinaryPath.split("/").pop() ?? "";
     this.model ??= await this.loadModel(new URL("models/face_landmarker.task", base).href);
-    const order: ("GPU" | "CPU")[] = pref === "CPU" ? ["CPU"] : pref === "GPU" ? ["GPU", "CPU"] : ["GPU", "CPU"];
+    this.modelBytes = this.model.byteLength;
+    const order: ("GPU" | "CPU")[] = pref === "CPU" ? ["CPU"] : ["GPU", "CPU"];
     let lastErr: unknown;
     for (const d of order) {
-      try { await this.create(d); return; } catch (e) { lastErr = e; console.warn(`FaceLandmarker ${d} delegate failed`, e); }
+      try { await this.create({ delegate: d, ownCanvas }); return; }
+      catch (e) { lastErr = e; this.lastError = `create ${d}: ${(e as Error)?.message ?? e}`; console.warn(`FaceLandmarker ${d} delegate failed`, e); }
     }
     throw lastErr ?? new Error("Face tracker could not start");
   }
 
+  get config(): TrackerConfig { return { delegate: this.delegate, ownCanvas: this.ownCanvas }; }
+
   /** Throw away the tracker and build a fresh one (new WebGL context). Model stays in memory, so this is quick. */
-  async rebuild(delegate: "GPU" | "CPU" = this.delegate): Promise<void> {
+  async rebuild(cfg: Partial<TrackerConfig> = {}): Promise<void> {
+    const want: TrackerConfig = { ...this.config, ...cfg };
     this.close();
-    try { await this.create(delegate); }
-    catch (e) { if (delegate === "GPU") await this.create("CPU"); else throw e; }
+    try { await this.create(want); }
+    catch (e) {
+      this.lastError = `create ${want.delegate}: ${(e as Error)?.message ?? e}`;
+      if (want.delegate === "GPU") await this.create({ delegate: "CPU", ownCanvas: want.ownCanvas }); else throw e;
+    }
   }
 
-  private async create(delegate: "GPU" | "CPU") {
+  private async create(cfg: TrackerConfig) {
     this.close();
-    // Our own canvas, so we can see when the browser drops its WebGL context.
-    const canvas = document.createElement("canvas");
-    canvas.addEventListener("webglcontextlost", (e) => {
-      e.preventDefault();
-      this.contextLost = true;
-      this.onContextLost?.();
-    });
+    let canvas: HTMLCanvasElement | undefined;
+    if (cfg.ownCanvas) {
+      // Our own canvas, so we can see when the browser drops its WebGL context.
+      canvas = document.createElement("canvas");
+      canvas.addEventListener("webglcontextlost", (e) => {
+        e.preventDefault();
+        this.contextLost = true;
+        this.onContextLost?.();
+      });
+    }
     this.contextLost = false;
     this.lm = await FaceLandmarker.createFromOptions(this.fileset!, {
-      canvas,
-      baseOptions: { modelAssetBuffer: this.model!, delegate },
+      ...(canvas ? { canvas } : {}),
+      baseOptions: { modelAssetBuffer: this.model!, delegate: cfg.delegate },
       runningMode: "VIDEO",
       numFaces: 1,
       minFaceDetectionConfidence: 0.5,
@@ -60,7 +84,8 @@ export class MediaPipeFaceTracker {
       outputFaceBlendshapes: true,
       outputFacialTransformationMatrixes: true,
     });
-    this.delegate = delegate;
+    this.delegate = cfg.delegate;
+    this.ownCanvas = cfg.ownCanvas;
   }
 
   private async loadModel(localUrl: string): Promise<Uint8Array> {
@@ -79,7 +104,14 @@ export class MediaPipeFaceTracker {
     }
   }
 
-  detect(video: HTMLVideoElement, nowMs: number): DetectResult {
+  /** source: the live video element, or a canvas holding a copy of the current frame. */
+  detect(source: HTMLVideoElement | HTMLCanvasElement, nowMs: number): DetectResult {
+    try { return this.detectInner(source, nowMs); }
+    catch (e) { this.lastError = `detect: ${(e as Error)?.message ?? e}`; throw e; }
+  }
+
+  private detectInner(source: HTMLVideoElement | HTMLCanvasElement, nowMs: number): DetectResult {
+    const video = source;
     if (!this.lm) throw new Error("tracker not initialised");
     if (this.contextLost) throw new Error("tracker graphics context lost");
     // VIDEO mode requires strictly increasing integer timestamps.
@@ -87,6 +119,10 @@ export class MediaPipeFaceTracker {
     this.lastTs = ts;
     const res = this.lm.detectForVideo(video, ts);
     const faces = res.faceLandmarks?.length ?? 0;
+    this.lastFaces = faces;
+    const W = video instanceof HTMLVideoElement ? video.videoWidth : video.width;
+    const H = video instanceof HTMLVideoElement ? video.videoHeight : video.height;
+    this.lastSourceSize = `${W}×${H}`;
     if (!faces) return { faces: 0 };
     const blend: Record<string, number> = {};
     for (const c of res.faceBlendshapes?.[0]?.categories ?? []) blend[c.categoryName] = c.score;
@@ -94,8 +130,8 @@ export class MediaPipeFaceTracker {
       faces,
       raw: {
         landmarks: res.faceLandmarks[0],
-        imageWidth: video.videoWidth,
-        imageHeight: video.videoHeight,
+        imageWidth: W,
+        imageHeight: H,
         blendshapes: Object.keys(blend).length ? blend : undefined,
         transform: res.facialTransformationMatrixes?.[0]?.data,
       },

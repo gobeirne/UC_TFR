@@ -12,6 +12,7 @@ import { DeveloperScreen } from "./ui/DeveloperScreen";
 import { SettingsScreen } from "./ui/SettingsScreen";
 import { AboutScreen } from "./ui/AboutScreen";
 import { RemoteScreen } from "./ui/RemoteScreen";
+import { DiagnosticsScreen } from "./ui/DiagnosticsScreen";
 import { CalibrationService } from "./calibration/CalibrationService";
 import { PairingManager } from "./pairing/PairingManager";
 import type { ResponseOutput } from "./outputs/ResponseOutput";
@@ -21,7 +22,7 @@ const SCREENS: Record<ScreenName, Screen> = {
   "calibrate-forward": CalibrateForwardScreen, "calibrate-response": CalibrateResponseScreen,
   "calibrate-add-response": CalibrateAddResponseScreen, result: ResultScreen,
   validation: ValidationScreen, test: TestScreen, summary: SummaryScreen,
-  developer: DeveloperScreen, settings: SettingsScreen, about: AboutScreen, remote: RemoteScreen,
+  developer: DeveloperScreen, settings: SettingsScreen, about: AboutScreen, remote: RemoteScreen, diagnostics: DiagnosticsScreen,
 };
 const NEEDS_SESSION: ScreenName[] = ["start", "position", "calibrate-forward", "calibrate-response", "calibrate-add-response", "result", "validation", "test", "summary", "developer"];
 const NEEDS_CALIBRATION: ScreenName[] = ["validation", "test", "summary"];

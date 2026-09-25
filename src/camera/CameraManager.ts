@@ -9,14 +9,20 @@ export class CameraManager {
   readonly video: HTMLVideoElement;
   stream?: MediaStream;
   info = "";
+  /** Last failure of video.play(), for diagnostics (e.g. blocked without a tap, Low Power Mode). */
+  lastPlayError = "";
   /** Called if the camera track ends or is muted by the OS (e.g. app backgrounded, another app took the camera). */
   onTrackProblem?: (why: string) => void;
 
   constructor() {
     const v = document.createElement("video");
-    // No autoplay: iOS pauses "autoplay" media it considers invisible. We call play() ourselves.
-    v.muted = true; v.playsInline = true;
-    v.setAttribute("playsinline", ""); v.setAttribute("muted", "");
+    // muted + autoplay + playsinline is the combination iOS needs to start a camera
+    // stream without a tap. (The parked video is kept properly visible, so iOS's
+    // "pause invisible autoplay video" policy shouldn't apply.)
+    v.muted = true; v.playsInline = true; v.autoplay = true;
+    v.setAttribute("playsinline", ""); v.setAttribute("muted", ""); v.setAttribute("autoplay", "");
+    // Any tap anywhere resumes a video the browser refused to play or paused (taps count as permission).
+    document.addEventListener("pointerdown", () => this.nudge(), { capture: true, passive: true });
     v.className = "camera-video";
     this.video = v;
   }
@@ -53,7 +59,7 @@ export class CameraManager {
       setTimeout(() => { if (this.stream === stream && track.muted && track.readyState === "live") this.onTrackProblem?.("camera paused by the system"); }, 2000);
     });
     this.video.srcObject = this.stream;
-    await this.video.play().catch(() => { /* resumed on first mount */ });
+    await this.play();
     await new Promise<void>((res) => {
       if (this.video.readyState >= 2) return res();
       this.video.addEventListener("loadeddata", () => res(), { once: true });
@@ -63,10 +69,15 @@ export class CameraManager {
     this.info = `${s.width ?? "?"}×${s.height ?? "?"} @ ${s.frameRate ? Math.round(s.frameRate) : "?"} fps${s.facingMode ? ` (${s.facingMode})` : ""}`;
   }
 
+  async play(): Promise<void> {
+    try { await this.video.play(); this.lastPlayError = ""; }
+    catch (e) { this.lastPlayError = `${(e as DOMException)?.name ?? "error"}: ${(e as Error)?.message ?? e}`; }
+  }
+
   /** Resume the video element if the browser paused it. Cheap; no new camera request. */
   nudge(): boolean {
     if (!this.video.paused || !this.running) return false;
-    this.video.play().catch(() => {});
+    void this.play();
     return true;
   }
 
@@ -86,7 +97,7 @@ export class CameraManager {
   mount(parent: HTMLElement, className = "camera-video"): void {
     this.video.className = className;
     parent.appendChild(this.video);
-    this.video.play().catch(() => {});
+    void this.play();
   }
 
   stop(): void {

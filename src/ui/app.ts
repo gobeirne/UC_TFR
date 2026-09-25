@@ -8,7 +8,7 @@ import type { ResponseOutput } from "../outputs/ResponseOutput";
 import type { PairingManager } from "../pairing/PairingManager";
 
 export type ScreenName = "home" | "start" | "position" | "calibrate-forward" | "calibrate-response" | "calibrate-add-response" | "result"
-  | "validation" | "test" | "summary" | "developer" | "settings" | "about" | "remote";
+  | "validation" | "test" | "summary" | "developer" | "settings" | "about" | "remote" | "diagnostics";
 
 export interface App {
   root: HTMLElement;

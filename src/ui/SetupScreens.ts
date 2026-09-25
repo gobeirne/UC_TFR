@@ -88,7 +88,8 @@ export const PositionScreen: Screen = (app) => {
     const stuck = !s.valid && s.timestampMs - lastGood > 3000;
     why.classList.toggle("hidden", !stuck && !app.engine.gaveUp);
     if (app.engine.gaveUp) why.textContent = app.engine.gaveUp;
-    else if (stuck) why.textContent = `Not tracking: ${INVALID_REASON_TEXT[s.invalidReason ?? "no-face"]}. If the face is clearly in view, restart the camera and tracking.`;
+    else if (stuck && app.camera.video.paused) why.textContent = "The camera picture is paused. Tap anywhere on the screen to resume it. If it keeps pausing, check that Low Power Mode is off, or run Diagnostics.";
+    else if (stuck) why.textContent = `Not tracking: ${INVALID_REASON_TEXT[s.invalidReason ?? "no-face"]}. If the face is clearly in view, restart the camera and tracking, or run Diagnostics.`;
   });
 
   app.root.append(h("main", { class: "page wide" },
@@ -99,7 +100,7 @@ export const PositionScreen: Screen = (app) => {
     h("dl", { class: "readout" }, h("dt", {}, "Face detected"), h("dd", {}, face), h("dt", {}, "Tracking"), h("dd", {}, quality), h("dt", {}, "Face size"), h("dd", {}, size)),
     why,
     camRow,
-    h("div", { class: "actions" }, cont, restartBtn, h("button", { onclick: () => app.endSession() }, "Cancel")),
+    h("div", { class: "actions" }, cont, restartBtn, h("button", { onclick: () => app.go("diagnostics") }, "Diagnostics"), h("button", { onclick: () => app.endSession() }, "Cancel")),
     pair.el,
     h("p", { class: "fineprint" }, "With a clinician remote paired, you can record the calibration positions, start and pause testing, and see responses from the remote — no line of sight to this screen needed."),
   ));

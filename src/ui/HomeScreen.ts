@@ -19,6 +19,7 @@ export const HomeScreen: Screen = (app) => {
         h("button", { onclick: () => void app.pairing.openAsClinician().catch((e) => alert(`Pairing could not start: ${e?.message ?? e}`)) }, "Use this device as the clinician remote"),
         h("button", { onclick: () => app.go("settings") }, "Settings"),
         h("button", { onclick: () => app.go("about") }, "About, privacy and installing"),
+        h("button", { onclick: () => app.go("diagnostics") }, "Diagnostics"),
       ),
       h("p", { class: "hint" }, "Two devices? Start a session on the one facing the client, then pair it with a second device used as the clinician remote."),
       h("p", { class: "fineprint" }, "Experimental touch-free patient-response interface for behavioural audiometry. Not a diagnostic or certified medical device."),
