@@ -58,7 +58,7 @@ There is no application server. `dist/` is the whole app. `base` is relative, so
 5. **Result:** Excellent / Good / Marginal / Unable to distinguish, with suggestions. Marginal or worse is never silently accepted.
 6. **Try it:** the client looks forward and at the device a few times; the circle should go green once per look.
 7. **Start testing:** the screen goes black. Green = responding.
-8. **To leave the black screen:** press and hold the **top-left corner for 1.5 s** (a grey ring fills to acknowledge), or press **Esc** on a keyboard. The pause screen shows response count, time without tracking, any “device may have moved” warning, and research-log export.
+8. **To leave the black screen:** tap the small **‹ Back** button in the top-left corner, press **Esc** on a keyboard (or leave full screen any other way), or press and hold the top-left corner for 1.5 s. The pause screen shows response count, time without tracking, any “device may have moved” warning, and research-log export.
 
 ### Installing as a web app (optional)
 

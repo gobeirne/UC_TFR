@@ -26,8 +26,11 @@ export const TestScreen: Screen = (app) => {
   app.camera.mount(holder, "hidden-video-el");
   const marker = h("div", { class: "lost-marker" });
   const ring = h("div", { class: "exit-ring" });
+  // Small, dim, but visible on both black and green. The client never touches the
+  // device, so a tap is safe; press-and-hold in the corner also still works.
+  const backBtn = h("button", { class: "test-back", "aria-label": "Leave test mode", onclick: () => exit() }, "‹ Back");
   const exitZone = h("div", { class: "exit-zone" }, ring);
-  screen.append(marker, exitZone);
+  screen.append(marker, exitZone, backBtn);
   app.root.append(holder, screen);
   document.body.classList.add("testing");
 
@@ -59,6 +62,16 @@ export const TestScreen: Screen = (app) => {
   });
   for (const ev of ["pointerup", "pointercancel", "pointerleave"]) exitZone.addEventListener(ev, cancelHold);
   const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") exit(); };
+  // In full screen the browser takes the first Escape to leave full screen and the page
+  // never sees the key. Treat leaving full screen as leaving test mode.
+  let wasFullscreen = false;
+  const onFs = () => {
+    if (document.fullscreenElement) wasFullscreen = true;
+    else if (wasFullscreen) exit();
+  };
+  document.addEventListener("fullscreenchange", onFs);
+  // enterFullscreen() was requested just before this screen opened; it may already be active.
+  if (document.fullscreenElement) wasFullscreen = true;
   const block = (e: Event) => e.preventDefault();
   const onOrient = () => pipeline.movement.flag("device orientation changed");
   document.addEventListener("keydown", onKey);
@@ -85,6 +98,7 @@ export const TestScreen: Screen = (app) => {
     pipeline.outputs.disposeAll();
     void wake.release(); void exitFullscreen();
     document.removeEventListener("keydown", onKey);
+    document.removeEventListener("fullscreenchange", onFs);
     document.removeEventListener("touchmove", block);
     document.removeEventListener("gesturestart", block as any);
     document.removeEventListener("contextmenu", block);

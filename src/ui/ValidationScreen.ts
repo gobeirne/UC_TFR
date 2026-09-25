@@ -78,7 +78,7 @@ export const ValidationScreen: Screen = (app) => {
       app.settings.developerMode ? h("button", { onclick: () => app.go("developer") }, "Developer view") : null),
     modePicker(app),
     pair.el,
-    h("p", { class: "hint" }, "To leave the black test screen: press and hold the top-left corner for 1.5 seconds (or press Esc on a keyboard). Don't move the device after calibration."),
+    h("p", { class: "hint" }, "To leave the black test screen: tap “‹ Back” in the top-left corner, or press Esc on a keyboard. Don't move the device after calibration."),
   ));
   return () => { unsub(); pair.dispose(); pipeline.stop(performance.now()); unregister(); };
 };

@@ -65,7 +65,9 @@ export const DiagnosticsScreen: Screen = (app) => {
       ["Camera settings", track ? `${ts.width ?? "?"}×${ts.height ?? "?"} @ ${ts.frameRate ? Math.round(ts.frameRate) : "?"} fps, ${ts.facingMode ?? "facing ?"}` : "—", ""],
       ["Video element", `${v.paused ? "PAUSED — tap the screen to resume" : "playing"}, readyState ${v.readyState}, ${v.videoWidth}×${v.videoHeight}`, v.paused || v.readyState < 2 || !v.videoWidth ? "bad" : "ok"],
       ["Video play() error", cam.lastPlayError || "none", cam.lastPlayError ? "bad" : "ok"],
-      ["New camera frames", `${st.cameraFps}/s (${st.loop})`, st.cameraFps >= 5 ? "ok" : st.cameraFps > 0 ? "warn" : "bad"],
+      !st.frameCounter && st.loop === "rAF"
+        ? ["New camera frames", "not measurable in this browser (analysing at the inference rate)", ""]
+        : ["New camera frames", `${st.cameraFps}/s (${st.loop})`, st.cameraFps >= 5 ? "ok" : st.cameraFps > 0 ? "warn" : "bad"],
       ["Frame brightness", Number.isFinite(brightness) ? `${fmt(brightness, 0)} / 255${brightness < 8 ? " — BLACK FRAMES" : brightness < 40 ? " — very dark" : ""}` : "—", !Number.isFinite(brightness) ? "" : brightness < 8 ? "bad" : brightness < 40 ? "warn" : "ok"],
       ["Tracker", t.ready ? `${t.delegate}, ${t.ownCanvas ? "app canvas" : "own canvas"}, input: ${st.inputMode === "canvas" ? "copied frame" : "live video"}` : "not loaded", t.ready ? "ok" : "bad"],
       ["Model / engine", `${t.modelSource || "?"} (${fmt(t.modelBytes / 1e6, 1)} MB), ${t.wasmPath || "?"}`, t.modelBytes > 1e6 ? "ok" : "warn"],

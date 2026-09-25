@@ -24,6 +24,8 @@ export interface EngineStats {
   lastFaces: number;
   inputMode: string;
   ownCanvas: boolean;
+  /** False when the browser gives no way to count camera frames (cameraFps then unknown). */
+  frameCounter: boolean;
   /** Share of recent samples by outcome, last ~5 s. */
   outcomes: Record<string, number>;
 }
@@ -48,7 +50,9 @@ export class TrackingEngine {
   private subs = new Set<(s: TrackingSample) => void>();
   private running = false;
   private lastInfer = -Infinity;
-  private lastMediaTime = -1;
+  private lastFrameId = -1;
+  private lastCurrentTime = -1;
+  private sawFrameCounter = false;
   private lastSampleAt = 0;
   /** Last time a real camera frame was analysed (placeholder samples don't count). */
   private lastRealSampleAt = 0;
@@ -217,6 +221,7 @@ export class TrackingEngine {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.gaveUp = ""; this.cameraRestarts = [];
     this.lastSampleAt = performance.now();
     this.resumeLoop();
     this.watchdog = window.setInterval(() => this.checkStall(), 250);
@@ -237,7 +242,8 @@ export class TrackingEngine {
     this.lastFrameCb = performance.now();
     this.lastRealSampleAt = performance.now();
     this.lastCameraFrameAt = performance.now();
-    this.lastMediaTime = -1;
+    this.lastFrameId = -1;
+    this.lastCurrentTime = -1;
     this.forceRaf = false;
     this.schedule();
   }
@@ -257,25 +263,48 @@ export class TrackingEngine {
     // Prefer frame-driven callbacks; fall back to rAF if unsupported or if they stop firing.
     if (!this.forceRaf && typeof v.requestVideoFrameCallback === "function") {
       this.mode = "rVFC";
-      this.rvfcHandle = v.requestVideoFrameCallback((now: number, meta: { mediaTime?: number }) => {
+      this.rvfcHandle = v.requestVideoFrameCallback((now: number, meta: { presentedFrames?: number }) => {
         this.lastFrameCb = performance.now();
-        this.onFrame(now, meta?.mediaTime);
+        // rVFC fires once per new frame by definition. presentedFrames (a per-frame
+        // counter) guards against duplicates. Do NOT use mediaTime for this: iPhone
+        // Safari updates it only about once a second for camera streams, which
+        // silently dropped 29 of every 30 frames.
+        this.onFrame(now, typeof meta?.presentedFrames === "number" ? meta.presentedFrames : undefined, true);
         this.schedule();
       });
     } else {
       this.mode = "rAF";
-      this.rafHandle = requestAnimationFrame((now) => { this.onFrame(now, v.currentTime); this.schedule(); });
+      this.rafHandle = requestAnimationFrame((now) => {
+        const q = (v as any).getVideoPlaybackQuality?.();
+        const total = q && q.totalVideoFrames > 0 ? q.totalVideoFrames : undefined;
+        this.onFrame(now, total, false);
+        this.schedule();
+      });
     }
   }
 
-  private onFrame(now: number, mediaTime?: number): void {
+  /**
+   * frameId: a per-frame counter if the browser provides one (used to skip duplicates).
+   * fromFrameCallback: called by rVFC, so it is a new frame even without a counter.
+   */
+  private onFrame(now: number, frameId: number | undefined, fromFrameCallback: boolean): void {
     const v = this.camera.video;
-    if (mediaTime !== undefined) {
-      if (mediaTime === this.lastMediaTime) return; // same frame, dedupe
-      this.lastMediaTime = mediaTime;
+    let isNew: boolean;
+    if (frameId !== undefined || fromFrameCallback) this.sawFrameCounter = true;
+    if (frameId !== undefined) { isNew = frameId !== this.lastFrameId; this.lastFrameId = frameId; }
+    else isNew = fromFrameCallback;
+    if (isNew) {
+      this.frameStamps.push(now); this.trim(this.frameStamps, now);
+      this.lastCameraFrameAt = performance.now();
+    } else if (frameId === undefined && v.currentTime !== this.lastCurrentTime) {
+      // rAF with no frame counter: currentTime is only a coarse liveness signal.
+      this.lastCurrentTime = v.currentTime;
+      this.lastCameraFrameAt = performance.now();
     }
-    this.frameStamps.push(now); this.trim(this.frameStamps, now);
-    this.lastCameraFrameAt = performance.now();
+    // Without any frame counter (rAF on some browsers) analyse at the inference rate anyway:
+    // re-analysing an identical frame is harmless, dropping real ones is not.
+    const analysable = isNew || (!fromFrameCallback && frameId === undefined);
+    if (!analysable) return;
     if (v.readyState < 2 || !v.videoWidth || !this.ready || this.busy || this.paused) return;
     const interval = 1000 / Math.max(1, this.settings.inferenceHz);
     if (now - this.lastInfer < interval * 0.9) { this.skipped++; return; }
@@ -373,6 +402,7 @@ export class TrackingEngine {
       lastFaces: this.tracker.lastFaces,
       inputMode: this.settings.inputMode,
       ownCanvas: this.tracker.ownCanvas,
+      frameCounter: this.sawFrameCounter,
       outcomes: this.outcomes.reduce((a, o) => { a[o.k] = (a[o.k] ?? 0) + 1; return a; }, {} as Record<string, number>),
     };
   }

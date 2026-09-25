@@ -15,7 +15,7 @@ export const AboutScreen: Screen = (app) => {
       h("li", {}, "Tell the client: “Keep looking straight ahead. Whenever you hear a beep, look at the phone. Then look straight ahead again.”"),
       h("li", {}, "Calibrate forward, then response. Try it a few times, then start testing."),
       h("li", {}, "The screen stays black, and turns green while the client looks at it. Record a response each time it goes green."),
-      h("li", {}, "To leave the test screen, press and hold its top-left corner for 1.5 seconds (Esc on a keyboard).")),
+      h("li", {}, "To leave the test screen, tap “‹ Back” in its top-left corner (or press Esc on a keyboard).")),
     h("h2", {}, "Install as an app (optional)"),
     isIOS()
       ? h("p", {}, "In Safari: tap Share (or the page menu), choose Add to Home Screen, and switch on Open as Web App if offered. The normal website works too.")
